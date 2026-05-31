@@ -7,6 +7,7 @@ using Repository_TechCompass.Repositories;
 using Service_TechCompass.Interfaces;
 using Service_TechCompass.Services;
 using System.Text;
+using Repository_TechCompass.Interfaces;
 
 namespace API_TechCompass
 {
@@ -19,9 +20,12 @@ namespace API_TechCompass
             builder.Services.AddDbContext<Swp391CareerRoadmapContext>(options =>
                 options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+            // --- ĐĂNG KÝ CÁC REPOSITORY VÀ SERVICE TẠI ĐÂY ---
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
+            builder.Services.AddScoped<IProfileService, ProfileService>(); // <--- Dòng mới được thêm vào
+            builder.Services.AddScoped<IRoadmapEngineService, RoadmapEngineService>();
 
             builder.Services.AddCors(options =>
             {
@@ -58,6 +62,10 @@ namespace API_TechCompass
 
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddScoped<IRoleService, RoleService>();
+            builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+            builder.Services.AddScoped<ICareerService, CareerService>();
+            builder.Services.AddScoped<IRoadmapService, RoadmapService>();
 
             builder.Services.AddSwaggerGen(c =>
             {

@@ -7,6 +7,7 @@ using Repository_TechCompass.Models;
 using Repository_TechCompass.Repositories;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
+using Repository_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
 {
