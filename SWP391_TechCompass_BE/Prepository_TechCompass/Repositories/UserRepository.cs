@@ -1,24 +1,45 @@
-﻿using Repository_TechCompass.Models;
-using Repository_TechCompass.Interfaces;
+﻿using Repository_TechCompass.Interfaces;
+using Repository_TechCompass.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 namespace Repository_TechCompass.Repositories
 {
     public class UserRepository : IUserRepository
-
     {
+        private readonly Swp391CareerRoadmapContext _context;
+
+        public UserRepository(Swp391CareerRoadmapContext context)
+        {
+            _context = context;
+        }
+
         public List<User> GetAllUsers()
         {
             return _context.Users.ToList();
         }
 
-        public void DeleteUser(User user)
+        public void UpdateUser(User user)
+        {
+            _context.Users.Update(user);
+        }
+
+        public void DeleteUser(User user) // <--- Đã xóa hàm trùng, chỉ giữ 1 khối lệnh
         {
             _context.Users.Remove(user);
         }
-        // Sử dụng .Select() để chỉ lấy ra cột UserId, tối ưu hóa hiệu năng thay vì lấy toàn bộ bảng
+
+        public List<AiRecommendation> GetAllAiRecommendations()
+        {
+            return _context.AiRecommendations.ToList();
+        }
+
         public List<Guid> GetAllUserIds()
         {
             return _context.Users.Select(u => u.UserId).ToList();
         }
+
         public List<Role> GetAllRoles()
         {
             return _context.Roles.ToList();
@@ -43,7 +64,6 @@ namespace Repository_TechCompass.Repositories
         {
             _context.Roles.Remove(role);
         }
-        private readonly Swp391CareerRoadmapContext _context;
 
         public User? GetUserById(Guid userId)
         {
@@ -58,11 +78,6 @@ namespace Repository_TechCompass.Repositories
         public void UpdateStudent(Student student)
         {
             _context.Students.Update(student);
-        }
-
-        public UserRepository(Swp391CareerRoadmapContext context)
-        {
-            _context = context;
         }
 
         public User GetUserByEmail(string email)

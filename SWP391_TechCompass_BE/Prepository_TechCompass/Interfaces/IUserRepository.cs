@@ -1,13 +1,17 @@
 ﻿using Repository_TechCompass.Models;
+using System;
+using System.Collections.Generic;
 
-namespace Repository_TechCompass.Interfaces // <--- Đã sửa đổi Repositories thành Interfaces
+namespace Repository_TechCompass.Interfaces
 {
     public interface IUserRepository
     {
         List<User> GetAllUsers();
-        void DeleteUser(User user);
         List<Role> GetAllRoles();
+        List<AiRecommendation> GetAllAiRecommendations();
         Role? GetRoleById(int roleId);
+        void UpdateUser(User user);
+        void DeleteUser(User user); // <--- Đã xóa dòng trùng, chỉ giữ 1 dòng
         void AddRole(Role role);
         void UpdateRole(Role role);
         void DeleteRole(Role role);
