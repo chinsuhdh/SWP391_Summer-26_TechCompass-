@@ -8,16 +8,7 @@
         public string RoleName { get; set; } = string.Empty;
         public List<SkillNodeDto> GeneratedNodes { get; set; } = new List<SkillNodeDto>();
     }
-    // DTO cho Cây kỹ năng (Tech Path Map)
-    public class SkillNodeDto
-    {
-        public int NodeId { get; set; }
-        public string NodeName { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public int? ParentNodeId { get; set; } // Dùng để Frontend vẽ sơ đồ cây và Zoom
-        public bool IsCompleted { get; set; } // Đã học xong chưa?
-        public bool IsLocked { get; set; } // Khóa nếu Node cha chưa hoàn thành
-    }
+    
 
     // DTO cho Trend Công nghệ
     public class TechTrendDto

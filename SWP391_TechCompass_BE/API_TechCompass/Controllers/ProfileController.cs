@@ -12,9 +12,9 @@ namespace API_TechCompass.Controllers
     [Authorize] // Yêu cầu bắt buộc phải có JWT Token mới được gọi API này
     public class ProfileController : ControllerBase
     {
-        private readonly IProfileService _profileService;
+        private readonly IStudentProfileService _profileService;
 
-        public ProfileController(IProfileService profileService)
+        public ProfileController(IStudentProfileService profileService)
         {
             _profileService = profileService;
         }
@@ -41,7 +41,7 @@ namespace API_TechCompass.Controllers
         }
 
         [HttpPut("me")]
-        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateProfileDto request)
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateStudentProfileDto request)
         {
             if (!ModelState.IsValid)
             {

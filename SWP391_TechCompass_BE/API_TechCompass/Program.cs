@@ -24,7 +24,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
-            builder.Services.AddScoped<IProfileService, ProfileService>(); // <--- Dòng mới được thêm vào
+            builder.Services.AddScoped<IStudentProfileService, StudentProfileService>(); // <--- Dòng mới được thêm vào
             builder.Services.AddScoped<IRoadmapEngineService, RoadmapEngineService>();
 
             builder.Services.AddCors(options =>
@@ -66,7 +66,11 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminUserService, AdminUserService>();
             builder.Services.AddScoped<ICareerService, CareerService>();
             builder.Services.AddScoped<IRoadmapService, RoadmapService>();
-
+            builder.Services.AddScoped<ILearningHubService, LearningHubService>();
+            builder.Services.AddScoped<IContentRepository, ContentRepository>();
+            builder.Services.AddScoped<IAdminContentService, AdminContentService>();
+            builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
+            builder.Services.AddScoped<IRoleRepository, RoleRepository>();
             builder.Services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "TechCompass API", Version = "v1" });
@@ -91,7 +95,7 @@ namespace API_TechCompass
                                 Id = "Bearer"
                             }
                         },
-                        new string[] {}
+                        Array.Empty<string>()
                     }
                 });
             });

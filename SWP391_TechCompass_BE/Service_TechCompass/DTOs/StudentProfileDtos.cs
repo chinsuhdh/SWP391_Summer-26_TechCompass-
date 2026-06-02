@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-public class UserProfileDto
+public class UserStudentProfileDto
 {
     public Guid UserId { get; set; }
     public string Email { get; set; } = string.Empty; // <-- Thêm = string.Empty;
@@ -11,7 +11,7 @@ public class UserProfileDto
     public DateTime? UpdatedAt { get; set; }
 }
 
-public class UpdateProfileDto
+public class UpdateStudentProfileDto
 {
     [Required(ErrorMessage = "Họ và tên không được để trống")]
     public string FullName { get; set; } = string.Empty; // <-- Thêm = string.Empty;

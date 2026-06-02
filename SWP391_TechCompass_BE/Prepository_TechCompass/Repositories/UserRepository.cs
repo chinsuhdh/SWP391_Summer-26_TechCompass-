@@ -14,6 +14,11 @@ namespace Repository_TechCompass.Repositories
         {
             _context.Users.Remove(user);
         }
+        // Sử dụng .Select() để chỉ lấy ra cột UserId, tối ưu hóa hiệu năng thay vì lấy toàn bộ bảng
+        public List<Guid> GetAllUserIds()
+        {
+            return _context.Users.Select(u => u.UserId).ToList();
+        }
         public List<Role> GetAllRoles()
         {
             return _context.Roles.ToList();
