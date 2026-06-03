@@ -22,7 +22,11 @@ namespace API_TechCompass.Controllers
         // Lấy ID người dùng hiện tại từ Token một cách an toàn
         private Guid GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            // ASP.NET Core mặc định map "sub" thành ClaimTypes.NameIdentifier
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                           ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            // Thêm dòng fallback ở trên để đảm bảo bắt được mọi trường hợp
+
             return string.IsNullOrEmpty(userIdClaim) ? Guid.Empty : Guid.Parse(userIdClaim);
         }
 

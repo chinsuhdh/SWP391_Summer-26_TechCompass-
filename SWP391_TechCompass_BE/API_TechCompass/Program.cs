@@ -30,6 +30,12 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
             builder.Services.AddScoped<IMentorRepository, MentorRepository>();
             builder.Services.AddScoped<IAdminMentorService, AdminMentorService>();
+            builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
+            builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+            builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
+            builder.Services.AddScoped<IQuizSyncService, QuizSyncService>();
+            builder.Services.AddHttpClient<ICareerService, CareerService>();
+
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll",
@@ -75,6 +81,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
             builder.Services.AddScoped<IRoleRepository, RoleRepository>();
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
+
             builder.Services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "TechCompass API", Version = "v1" });

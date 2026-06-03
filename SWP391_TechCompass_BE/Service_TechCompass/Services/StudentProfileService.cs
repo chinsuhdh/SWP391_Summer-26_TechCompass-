@@ -42,20 +42,26 @@ namespace Service_TechCompass.Services
         public Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request)
         {
             var student = _userRepo.GetStudentByUserId(userId);
-
             if (student == null)
             {
                 return Task.FromResult<(int, string)>((404, "Không tìm thấy hồ sơ sinh viên để cập nhật."));
             }
 
-            // Cập nhật các trường thông tin
+            // --- (Tùy chọn) BỔ SUNG VALIDATE Ở ĐÂY ---
+            // Giả sử bạn có hàm kiểm tra ID Role có tồn tại không
+            if (request.TargetRoleId.HasValue)
+            {
+                // bool roleExists = _roleRepo.CheckTargetRoleExists(request.TargetRoleId.Value);
+                // if (!roleExists) return Task.FromResult<(int, string)>((400, "Target Role ID không hợp lệ."));
+            }
+            // ----------------------------------------
+
             student.FullName = request.FullName;
             student.StudentCode = request.StudentCode;
             student.LatentTalentSummary = request.LatentTalentSummary;
             student.TargetRoleId = request.TargetRoleId;
             student.UpdatedAt = DateTime.Now;
 
-            // Lưu vào database
             _userRepo.UpdateStudent(student);
             _userRepo.SaveChanges();
 

@@ -1,4 +1,11 @@
-﻿using Repository_TechCompass.Interfaces;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass;
+using Repository_TechCompass.Interfaces;
+using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
 
@@ -7,52 +14,59 @@ namespace Service_TechCompass.Services
     public class LearningHubService : ILearningHubService
     {
         private readonly IUserRepository _userRepo;
+        private readonly Swp391CareerRoadmapContext _context; // Bổ sung DbContext để query thẳng bảng LearningResources
 
-        public LearningHubService(IUserRepository userRepo)
+        // Inject thêm Swp391CareerRoadmapContext vào Constructor
+        public LearningHubService(IUserRepository userRepo, Swp391CareerRoadmapContext context)
         {
             _userRepo = userRepo;
+            _context = context;
         }
 
-        public Task<(int StatusCode, string Message, NodeResourcesDto? Data)> GetResourcesByNodeIdAsync(Guid userId, int nodeId)
+        public async Task<(int StatusCode, string Message, NodeResourcesDto? Data)> GetResourcesByNodeIdAsync(Guid userId, int nodeId)
         {
+            // 1. Kiểm tra xem sinh viên có tồn tại hay không
             var student = _userRepo.GetStudentByUserId(userId);
             if (student == null)
-                return Task.FromResult<(int, string, NodeResourcesDto?)>((404, "Không tìm thấy hồ sơ sinh viên.", null));
+            {
+                return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+            }
 
             // TODO: Ở hệ thống thật, bạn sẽ check xem sinh viên đã mở khóa (unlock) Node này chưa.
             // Nếu chưa mở khóa thì return lỗi 403 (Không có quyền truy cập bài học).
 
-            var resources = new List<ResourceDto>();
-            string nodeName = "Kỹ năng lập trình";
+            // 2. Lấy thông tin Tên Kỹ năng (Node Name) từ Database
+            var skillNode = await _context.SkillNodes
+                .FirstOrDefaultAsync(n => n.SkillNodeId == nodeId);
 
-            // Mock Data: Giả sử sinh viên bấm vào Node C# Fundamentals (ID 101)
-            if (nodeId == 101 || nodeId == 1)
+            if (skillNode == null)
             {
-                nodeName = "C# Fundamentals";
-                resources.Add(new ResourceDto { ResourceId = 1, Title = "C# Basics for Beginners", ResourceType = "Video", Url = "https://youtube.com/watch?v=mock1", EstimatedMinutes = 45 });
-                resources.Add(new ResourceDto { ResourceId = 2, Title = "Microsoft Docs: C# Variables", ResourceType = "Article", Url = "https://learn.microsoft.com/en-us/dotnet/csharp/", EstimatedMinutes = 15 });
-            }
-            // Mock Data: Giả sử sinh viên bấm vào Node OOP (ID 102)
-            else if (nodeId == 102 || nodeId == 2)
-            {
-                nodeName = "Object-Oriented Programming (OOP) in C#";
-                resources.Add(new ResourceDto { ResourceId = 3, Title = "Understanding OOP Concepts", ResourceType = "Video", Url = "https://youtube.com/watch?v=mock2", EstimatedMinutes = 60 });
-                resources.Add(new ResourceDto { ResourceId = 4, Title = "Thực hành OOP với 5 bài tập cơ bản", ResourceType = "Quiz", Url = "/quiz/oop-basic", EstimatedMinutes = 30 });
-            }
-            else
-            {
-                nodeName = $"Kỹ năng (Node ID: {nodeId})";
-                resources.Add(new ResourceDto { ResourceId = 99, Title = "Tài liệu học tập chung", ResourceType = "Document", Url = "https://github.com/mock", EstimatedMinutes = 20 });
+                return (404, "Không tìm thấy kỹ năng (Node) này trong hệ thống.", null);
             }
 
+            // 3. Query danh sách tài liệu từ bảng learning_resources khớp với nodeId
+            var resources = await _context.LearningResources
+                .Where(r => r.SkillNodeId == nodeId)
+                .Select(r => new ResourceDto
+                {
+                    ResourceId = r.ResourceId,
+                    Title = r.Title,
+                    ResourceType = r.ResourceType ?? "Document",
+                    Url = r.Url,
+                    // Bảng DB chưa có cột Thời lượng (EstimatedMinutes), ta gán giả lập dựa trên loại tài liệu
+                    EstimatedMinutes = r.ResourceType == "Video" ? 45 : 20
+                })
+                .ToListAsync();
+
+            // 4. Map dữ liệu trả về cho Controller
             var responseData = new NodeResourcesDto
             {
                 NodeId = nodeId,
-                NodeName = nodeName,
+                NodeName = skillNode.NodeName,
                 Resources = resources
             };
 
-            return Task.FromResult<(int, string, NodeResourcesDto?)>((200, "Lấy danh sách tài liệu học tập thành công.", responseData));
+            return (200, "Lấy danh sách tài liệu học tập thành công.", responseData);
         }
     }
 }

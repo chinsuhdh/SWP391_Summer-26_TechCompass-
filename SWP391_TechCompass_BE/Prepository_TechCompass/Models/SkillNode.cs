@@ -32,4 +32,6 @@ public partial class SkillNode
     public virtual ICollection<TrendAnalysis> TrendAnalyses { get; set; } = new List<TrendAnalysis>();
 
     public virtual ICollection<JobPosting> Postings { get; set; } = new List<JobPosting>();
+
+    public virtual ICollection<AssessmentQuestion> AssessmentQuestions { get; set; } = new List<AssessmentQuestion>();
 }

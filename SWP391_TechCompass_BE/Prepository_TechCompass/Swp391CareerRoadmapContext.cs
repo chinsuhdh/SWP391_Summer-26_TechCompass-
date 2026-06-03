@@ -57,6 +57,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
 
     public virtual DbSet<User> Users { get; set; }
 
+    public virtual DbSet<AssessmentQuestion> AssessmentQuestions { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
 
@@ -616,6 +618,44 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey(d => d.SkillNodeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_trend_skillnode");
+        });
+
+        modelBuilder.Entity<AssessmentQuestion>(entity =>
+        {
+            entity.HasKey(e => e.QuestionId).HasName("PK__assessment_questions");
+
+            entity.ToTable("assessment_questions");
+
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+
+            entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
+
+            entity.Property(e => e.QuestionText).HasColumnName("question_text");
+
+            entity.Property(e => e.OptionA).HasColumnName("option_a");
+
+            entity.Property(e => e.OptionB).HasColumnName("option_b");
+
+            entity.Property(e => e.OptionC).HasColumnName("option_c");
+
+            entity.Property(e => e.OptionD).HasColumnName("option_d");
+
+            entity.Property(e => e.CorrectAnswer)
+                .HasMaxLength(10)
+                .IsUnicode(false)
+                .HasColumnName("correct_answer");
+
+            entity.Property(e => e.Explanation).HasColumnName("explanation");
+
+            entity.Property(e => e.DifficultyLevel)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("difficulty_level");
+
+            entity.HasOne(d => d.SkillNode).WithMany(p => p.AssessmentQuestions)
+                .HasForeignKey(d => d.SkillNodeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_question_skillnode");
         });
 
         modelBuilder.Entity<User>(entity =>
