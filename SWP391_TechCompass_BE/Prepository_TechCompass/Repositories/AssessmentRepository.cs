@@ -46,5 +46,12 @@ namespace Repository_TechCompass.Repositories
                 .Where(q => questionIds.Contains(q.QuestionId))
                 .ToListAsync();
         }
+
+        public async Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId)
+        {
+            return await _context.SkillAssessments
+                .Include(a => a.SkillNode) // Lấy kèm thông tin Node kỹ năng
+                .FirstOrDefaultAsync(a => a.AssessmentId == assessmentId);
+        }
     }
 }

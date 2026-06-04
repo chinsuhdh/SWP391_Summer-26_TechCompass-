@@ -10,5 +10,7 @@ namespace Repository_TechCompass.Interfaces
 
         Task<List<AssessmentQuestion>> GetQuestionsBySkillNodeAsync(int skillNodeId, int limit = 10);
         Task<List<AssessmentQuestion>> GetQuestionsByIdsAsync(List<int> questionIds);
+
+        Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId);
     }
 }

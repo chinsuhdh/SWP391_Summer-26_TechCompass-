@@ -38,4 +38,13 @@ namespace Service_TechCompass.DTOs.Assessment
         [JsonPropertyName("isCorrect")]
         public bool IsCorrect { get; set; }
     }
+
+    public class AssessmentFeedbackDto
+    {
+        public Guid AssessmentId { get; set; }
+        public string? NodeName { get; set; }
+        public decimal? TestScore { get; set; }
+        public string? AiFeedback { get; set; }
+        public DateTime? TakenAt { get; set; }
+    }
 }

@@ -186,5 +186,20 @@ Chỉ trả về nội dung nhận xét.";
 
             return await _repository.SaveAssessmentResultAsync(assessmentRecord);
         }
+
+        public async Task<AssessmentFeedbackDto> GetAssessmentFeedbackAsync(Guid assessmentId)
+        {
+            var assessment = await _repository.GetAssessmentByIdAsync(assessmentId);
+            if (assessment == null) throw new Exception("Không tìm thấy kết quả bài kiểm tra này.");
+
+            return new AssessmentFeedbackDto
+            {
+                AssessmentId = assessment.AssessmentId,
+                NodeName = assessment.SkillNode?.NodeName,
+                TestScore = assessment.TestScore,
+                AiFeedback = assessment.AiFeedback,
+                TakenAt = assessment.TakenAt
+            };
+        }
     }
 }

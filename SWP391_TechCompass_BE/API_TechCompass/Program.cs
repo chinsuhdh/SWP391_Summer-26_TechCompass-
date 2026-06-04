@@ -6,6 +6,7 @@ using Repository_TechCompass;
 using Repository_TechCompass.Repositories;
 using Service_TechCompass.Interfaces;
 using Service_TechCompass.Services;
+using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
 using Repository_TechCompass.Interfaces;
 
@@ -20,11 +21,10 @@ namespace API_TechCompass
             builder.Services.AddDbContext<Swp391CareerRoadmapContext>(options =>
                 options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-            // --- ĐĂNG KÝ CÁC REPOSITORY VÀ SERVICE TẠI ĐÂY ---
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
-            builder.Services.AddScoped<IStudentProfileService, StudentProfileService>(); 
+            builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
             builder.Services.AddScoped<IRoadmapEngineService, RoadmapEngineService>();
             builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
@@ -35,6 +35,14 @@ namespace API_TechCompass
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddScoped<IQuizSyncService, QuizSyncService>();
             builder.Services.AddHttpClient<ICareerService, CareerService>();
+            builder.Services.AddScoped<IStudentRepository, StudentRepository>();
+            builder.Services.AddScoped<IAiTalentService, AiTalentService>();
+            builder.Services.AddScoped<IPortfolioRepository, PortfolioRepository>();
+            builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
+
+            builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
+            builder.Services.AddScoped<ITelemetryService, TelemetryService>();
+            builder.Services.AddHostedService<TelemetryWorker>();
 
             builder.Services.AddCors(options =>
             {

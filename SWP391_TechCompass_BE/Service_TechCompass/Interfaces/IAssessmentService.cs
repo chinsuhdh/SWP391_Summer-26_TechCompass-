@@ -11,5 +11,7 @@ namespace Service_TechCompass.Interfaces
         Task<SkillAssessment> GradeAndSaveQuizAsync(QuizSubmissionDto submission);
 
         Task<SkillAssessment> GradeAndSaveCodeTestAsync(CodeTestSubmissionDto submission);
+
+        Task<AssessmentFeedbackDto> GetAssessmentFeedbackAsync(Guid assessmentId);
     }
 }
