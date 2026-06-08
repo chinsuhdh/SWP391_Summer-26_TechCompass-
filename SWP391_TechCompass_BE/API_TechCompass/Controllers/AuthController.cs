@@ -1,6 +1,5 @@
 ﻿using Service_TechCompass.DTOs;
 using Microsoft.AspNetCore.Mvc;
-using Service_TechCompass.DTOs;
 using Service_TechCompass.Services;
 
 namespace API_TechCompass.Controllers

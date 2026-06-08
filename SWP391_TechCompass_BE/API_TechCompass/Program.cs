@@ -40,6 +40,13 @@ namespace API_TechCompass
             builder.Services.AddScoped<IPortfolioRepository, PortfolioRepository>();
             builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
 
+            // Đăng ký Service & Repo mới
+            builder.Services.AddScoped<IMentorBookingRepository, MentorBookingRepository>();
+            builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
+
+            // KÍCH HOẠT SIGNALR
+            builder.Services.AddSignalR();
+
             builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
             builder.Services.AddScoped<ITelemetryService, TelemetryService>();
             builder.Services.AddHostedService<TelemetryWorker>();
@@ -135,6 +142,8 @@ namespace API_TechCompass
             app.UseAuthorization();
 
             app.MapControllers();
+
+            app.MapHub<Service_TechCompass.Hubs.MentorChatHub>("/mentorChatHub");
 
             app.Run();
         }
