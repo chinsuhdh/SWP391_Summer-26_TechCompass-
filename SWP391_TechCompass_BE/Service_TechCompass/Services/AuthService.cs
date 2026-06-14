@@ -148,13 +148,28 @@ namespace Service_TechCompass.Services
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var claims = new[]
+            // 1. TÌM THÔNG TIN STUDENT TỪ USER ID
+            // Nhờ hàm bạn đã định nghĩa trong IUserRepository
+            var student = _userRepo.GetStudentByUserId(user.UserId);
+
+            // 2. TẠO DANH SÁCH CLAIM CƠ BẢN
+            var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim("RoleId", user.RoleId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
+
+            // 3. THÊM STUDENT ID VÀO TOKEN (Nếu user là sinh viên)
+            if (student != null)
+            {
+                // Key này bắt buộc viết là "StudentId" để Frontend ở bước trước có thể đọc được
+                claims.Add(new Claim("StudentId", student.StudentId.ToString()));
+
+                // Bạn có thể nhét thêm FullName để FE hiện lời chào nếu thích
+                claims.Add(new Claim("FullName", student.FullName ?? ""));
+            }
 
             var token = new JwtSecurityToken(
                 issuer: jwtConfig["Issuer"],
