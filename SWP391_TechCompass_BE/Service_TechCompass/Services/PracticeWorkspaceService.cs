@@ -24,50 +24,72 @@ namespace Service_TechCompass.Services
             _configuration = configuration;
         }
 
-        // Chức năng 35: Run Code
+        // Chức năng 35: Run Code (Sử dụng JDoodle API)
         public async Task<RunCodeResponseDto> RunCodeAsync(RunCodeRequestDto request)
         {
-            string jBaseUrl = _configuration["Judge0Config:BaseUrl"];
-            string jApiKey = _configuration["Judge0Config:ApiKey"];
-            string jApiHost = _configuration["Judge0Config:ApiHost"];
+            string clientId = _configuration["JDoodleConfig:ClientId"];
+            string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
+            string apiUrl = "https://api.jdoodle.com/v1/execute";
 
-            int langId = request.Language.ToLower() switch
+            // Map ngôn ngữ từ Frontend sang chuẩn của JDoodle
+            string jLanguage = request.Language.ToLower() switch
             {
-                "csharp" => 51,
-                "javascript" => 63,
-                "python" => 71,
-                "java" => 62,
-                _ => 51
+                "csharp" => "csharp",
+                "javascript" => "nodejs",
+                "python" => "python3",
+                "java" => "java",
+                _ => "csharp"
             };
 
-            var judge0Req = new
+            // VersionIndex cho C# (Thường 4 là bản C# hỗ trợ tốt nhất trên JDoodle)
+            string jVersion = jLanguage == "csharp" ? "4" : "0";
+
+            // Payload gửi sang JDoodle
+            var jdoodleReq = new
             {
-                source_code = request.SourceCode,
-                language_id = langId,
+                clientId = clientId,
+                clientSecret = clientSecret,
+                script = request.SourceCode,
+                language = jLanguage,
+                versionIndex = jVersion,
                 stdin = request.Stdin
             };
 
-            var jRequestMessage = new HttpRequestMessage(HttpMethod.Post, jBaseUrl);
-            jRequestMessage.Headers.Add("X-RapidAPI-Key", jApiKey);
-            jRequestMessage.Headers.Add("X-RapidAPI-Host", jApiHost);
-            jRequestMessage.Content = new StringContent(JsonSerializer.Serialize(judge0Req), Encoding.UTF8, "application/json");
-
-            var jResponse = await _httpClient.SendAsync(jRequestMessage);
-
-            if (!jResponse.IsSuccessStatusCode)
+            try
             {
-                return new RunCodeResponseDto { Output = "Lỗi kết nối tới server biên dịch Judge0.", IsError = true };
+                var response = await _httpClient.PostAsJsonAsync(apiUrl, jdoodleReq);
+                var resultString = await response.Content.ReadAsStringAsync();
+
+                // Nếu JDoodle sập hoặc từ chối kết nối
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new RunCodeResponseDto { Output = "Lỗi HTTP từ JDoodle: " + resultString, IsError = true };
+                }
+
+                // Đọc kết quả JDoodle trả về
+                using var jsonDoc = JsonDocument.Parse(resultString);
+                var root = jsonDoc.RootElement;
+
+                // Kiểm tra xem JDoodle có báo lỗi API không (ví dụ: Hết lượt chạy miễn phí, Sai API Key)
+                if (root.TryGetProperty("error", out var errorEl) && !string.IsNullOrEmpty(errorEl.GetString()))
+                {
+                    return new RunCodeResponseDto { Output = "JDoodle API Error: " + errorEl.GetString(), IsError = true };
+                }
+
+                // Lấy kết quả in ra màn hình (JDoodle gộp chung cả Console.Write và Lỗi Code vào trường output)
+                string output = root.TryGetProperty("output", out var outputEl) ? outputEl.GetString() : "Không có output";
+
+                // Trả về cho Frontend
+                return new RunCodeResponseDto { Output = output, IsError = false };
             }
-
-            var jResultString = await jResponse.Content.ReadAsStringAsync();
-            var jResult = JsonSerializer.Deserialize<Judge0ResponseDto>(jResultString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            bool isError = jResult?.Status?.Id != 3; // ID 3 = Accepted
-            string output = isError
-                ? (jResult?.CompileOutput ?? jResult?.StdErr ?? "Lỗi không xác định khi chạy code.")
-                : (jResult?.StdOut ?? "Chương trình chạy thành công, không có output.");
-
-            return new RunCodeResponseDto { Output = output, IsError = isError };
+            catch (Exception ex)
+            {
+                return new RunCodeResponseDto
+                {
+                    Output = $"Không thể kết nối đến JDoodle. Chi tiết lỗi: {ex.Message}",
+                    IsError = true
+                };
+            }
         }
 
         // Chức năng 37: AI Tutor Chat

@@ -18,39 +18,63 @@ namespace API_TechCompass
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // 1. DATABASE CONTEXT
             builder.Services.AddDbContext<Swp391CareerRoadmapContext>(options =>
                 options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+            // 2. ĐĂNG KÝ REPOSITORY
             builder.Services.AddScoped<IUserRepository, UserRepository>();
+            builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
+            builder.Services.AddScoped<IMentorRepository, MentorRepository>();
+            builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
+            builder.Services.AddScoped<IStudentRepository, StudentRepository>();
+            builder.Services.AddScoped<IPortfolioRepository, PortfolioRepository>();
+            builder.Services.AddScoped<IMentorBookingRepository, MentorBookingRepository>();
+            builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+            builder.Services.AddScoped<IContentRepository, ContentRepository>();
+
+            // THÊM DÒNG NÀY VÀO ĐỂ FIX LỖI:
+            builder.Services.AddScoped<IPracticeWorkspaceRepository, PracticeWorkspaceRepository>();
+
+
+
+            // 3. ĐĂNG KÝ SERVICE
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
             builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
             builder.Services.AddScoped<IRoadmapEngineService, RoadmapEngineService>();
-            builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
-            builder.Services.AddScoped<IMentorRepository, MentorRepository>();
             builder.Services.AddScoped<IAdminMentorService, AdminMentorService>();
-            builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
             builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+            builder.Services.AddScoped<IAiTalentService, AiTalentService>();
+            builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
+            builder.Services.AddScoped<IRoleService, RoleService>();
+            builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+            builder.Services.AddScoped<IRoadmapService, RoadmapService>();
+            builder.Services.AddScoped<ILearningHubService, LearningHubService>();
+            builder.Services.AddScoped<IAdminContentService, AdminContentService>();
+            builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
+
+            // Đăng ký Service cho luồng thực hành Code (Fix lỗi Unable to resolve service)
+            builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
+
+            // 4. ĐĂNG KÝ HTTP CLIENT SERVICES (Dành cho các Service gọi API bên ngoài)
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddScoped<IQuizSyncService, QuizSyncService>();
+
             builder.Services.AddHttpClient<ICareerService, CareerService>();
-            builder.Services.AddScoped<IStudentRepository, StudentRepository>();
-            builder.Services.AddScoped<IAiTalentService, AiTalentService>();
-            builder.Services.AddScoped<IPortfolioRepository, PortfolioRepository>();
+            builder.Services.AddScoped<ICareerService, CareerService>();
+
             builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
+            builder.Services.AddScoped<IPortfolioService, PortfolioService>();
 
-            // Đăng ký Service & Repo mới
-            builder.Services.AddScoped<IMentorBookingRepository, MentorBookingRepository>();
-            builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
-
-            // KÍCH HOẠT SIGNALR
+            // 5. CÁC DỊCH VỤ NỀN & SIGNALR
             builder.Services.AddSignalR();
-
             builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
             builder.Services.AddScoped<ITelemetryService, TelemetryService>();
             builder.Services.AddHostedService<TelemetryWorker>();
 
+            // 6. CẤU HÌNH CORS
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll",
@@ -62,6 +86,7 @@ namespace API_TechCompass
                     });
             });
 
+            // 7. CẤU HÌNH AUTHENTICATION & JWT
             var jwtConfig = builder.Configuration.GetSection("Jwt");
             var secretKey = jwtConfig["Key"];
 
@@ -84,18 +109,9 @@ namespace API_TechCompass
                 };
             });
 
+            // 8. CẤU HÌNH CONTROLLER & SWAGGER
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddScoped<IRoleService, RoleService>();
-            builder.Services.AddScoped<IAdminUserService, AdminUserService>();
-            builder.Services.AddScoped<ICareerService, CareerService>();
-            builder.Services.AddScoped<IRoadmapService, RoadmapService>();
-            builder.Services.AddScoped<ILearningHubService, LearningHubService>();
-            builder.Services.AddScoped<IContentRepository, ContentRepository>();
-            builder.Services.AddScoped<IAdminContentService, AdminContentService>();
-            builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
-            builder.Services.AddScoped<IRoleRepository, RoleRepository>();
-            builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
 
             builder.Services.AddSwaggerGen(c =>
             {
@@ -128,6 +144,7 @@ namespace API_TechCompass
 
             var app = builder.Build();
 
+            // 9. PIPELINE MIDDLEWARE
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
@@ -135,14 +152,12 @@ namespace API_TechCompass
             }
 
             app.UseHttpsRedirection();
-
             app.UseCors("AllowAll");
 
             app.UseAuthentication();
             app.UseAuthorization();
 
             app.MapControllers();
-
             app.MapHub<Service_TechCompass.Hubs.MentorChatHub>("/mentorChatHub");
 
             app.Run();

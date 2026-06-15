@@ -121,5 +121,74 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = ex.Message });
             }
         }
+
+        // POST: api/assessments/generate-exercise/{skillNodeId}
+        [HttpPost("generate-exercise/{skillNodeId}")]
+        public async Task<IActionResult> GenerateOrGetCodingExercise(int skillNodeId)
+        {
+            try
+            {
+                var exercise = await _assessmentService.GetOrGenerateCodingExerciseAsync(skillNodeId);
+                return Ok(new { Message = "Lấy đề bài thành công", Data = exercise });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+
+        // GET: api/assessments/my-result/{studentId}/{skillNodeId}
+        [HttpGet("my-result/{studentId}/{skillNodeId}")]
+        public async Task<IActionResult> GetMyNodeResult(Guid studentId, int skillNodeId)
+        {
+            try
+            {
+                var result = await _assessmentService.GetMyLatestNodeResultAsync(studentId, skillNodeId);
+
+                if (result == null)
+                {
+                    return NotFound(new { Message = "Bạn chưa hoàn thành bài kiểm tra cho kỹ năng này." });
+                }
+
+                return Ok(new { Message = "Lấy lịch sử làm bài thành công", Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+
+        // GET: api/assessments/my-history/{studentId}
+        [HttpGet("my-history/{studentId}")]
+        public async Task<IActionResult> GetMyHistoryList(Guid studentId)
+        {
+            try
+            {
+                // Tận dụng hàm GetAssessmentsByStudentAsync đã có sẵn trong Repository
+                var history = await _assessmentService.GetMyAssessmentHistoryListAsync(studentId);
+                return Ok(new { Message = "Lấy danh sách thành công", Data = history });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+
+        // GET: api/assessments/history-detail/{assessmentId}
+        [HttpGet("history-detail/{assessmentId}")]
+        public async Task<IActionResult> GetHistoryDetail(Guid assessmentId)
+        {
+            try
+            {
+                var result = await _assessmentService.GetAssessmentDetailByIdAsync(assessmentId);
+                if (result == null) return NotFound(new { Message = "Không tìm thấy dữ liệu bài làm này." });
+
+                return Ok(new { Message = "Thành công", Data = result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
     }
 }

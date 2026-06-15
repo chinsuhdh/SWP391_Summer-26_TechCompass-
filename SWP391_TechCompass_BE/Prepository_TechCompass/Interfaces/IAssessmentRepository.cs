@@ -15,5 +15,18 @@ namespace Repository_TechCompass.Interfaces
         Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId);
 
         Task<List<SkillNode>> GetAllSkillNodesAsync();
+
+        // Lấy Node để biết tên kỹ năng (VD: "C#", "JavaScript")
+        Task<SkillNode?> GetSkillNodeByIdAsync(int skillNodeId);
+
+        // Lưu bài tập mới vào DB
+        Task<CodingExercise> SaveCodingExerciseAsync(CodingExercise exercise);
+
+        // Kiểm tra xem kỹ năng này đã có bài tập chưa (để không bắt AI sinh lại)
+        Task<CodingExercise?> GetCodingExerciseByNodeAsync(int skillNodeId);
+        Task<SkillAssessment?> GetLatestAssessmentByNodeAsync(Guid studentId, int skillNodeId);
+
+        Task<List<SkillAssessment>> GetAssessmentsByStudentAsync(Guid studentId);
+
     }
 }

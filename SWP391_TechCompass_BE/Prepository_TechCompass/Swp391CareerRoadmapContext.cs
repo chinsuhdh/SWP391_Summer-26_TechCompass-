@@ -59,6 +59,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
 
     public virtual DbSet<AssessmentQuestion> AssessmentQuestions { get; set; }
 
+    public virtual DbSet<CodingExercise> CodingExercises { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
 
@@ -520,6 +522,9 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey(d => d.TechPathId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_skillnode_techpath");
+            entity.Property(e => e.IsCodingRequired)
+                .HasDefaultValueSql("((1))")
+                .HasColumnName("is_coding_required");
         });
 
         modelBuilder.Entity<Student>(entity =>
@@ -714,6 +719,39 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_users_role");
+        });
+
+        modelBuilder.Entity<CodingExercise>(entity =>
+        {
+            entity.HasKey(e => e.ExerciseId).HasName("PK__coding_exercises");
+
+            entity.ToTable("coding_exercises");
+
+            entity.Property(e => e.ExerciseId).HasColumnName("exercise_id");
+
+            entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
+
+            entity.Property(e => e.Title)
+                .HasMaxLength(255)
+                .HasColumnName("title");
+
+            entity.Property(e => e.ProblemDescription).HasColumnName("problem_description");
+
+            entity.Property(e => e.DefaultCodeTemplate).HasColumnName("default_code_template");
+
+            entity.Property(e => e.TestStdin).HasColumnName("test_stdin");
+
+            entity.Property(e => e.ExpectedOutput).HasColumnName("expected_output");
+
+            entity.Property(e => e.DifficultyLevel)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("difficulty_level");
+
+            entity.HasOne(d => d.SkillNode).WithMany(p => p.CodingExercises)
+                .HasForeignKey(d => d.SkillNodeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_exercise_skillnode");
         });
 
         OnModelCreatingPartial(modelBuilder);

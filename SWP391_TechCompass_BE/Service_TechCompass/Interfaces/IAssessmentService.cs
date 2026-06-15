@@ -15,5 +15,12 @@ namespace Service_TechCompass.Interfaces
         Task<AssessmentFeedbackDto> GetAssessmentFeedbackAsync(Guid assessmentId);
 
         Task<IEnumerable<object>> GetAllSkillNodesAsync();
+
+        Task<CodingExercise> GetOrGenerateCodingExerciseAsync(int skillNodeId);
+
+        Task<object?> GetMyLatestNodeResultAsync(Guid studentId, int skillNodeId);
+
+        Task<IEnumerable<object>> GetMyAssessmentHistoryListAsync(Guid studentId);
+        Task<object?> GetAssessmentDetailByIdAsync(Guid assessmentId);
     }
 }

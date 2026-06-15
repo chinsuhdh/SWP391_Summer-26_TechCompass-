@@ -34,4 +34,8 @@ public partial class SkillNode
     public virtual ICollection<JobPosting> Postings { get; set; } = new List<JobPosting>();
 
     public virtual ICollection<AssessmentQuestion> AssessmentQuestions { get; set; } = new List<AssessmentQuestion>();
+
+    public bool? IsCodingRequired { get; set; }
+
+    public virtual ICollection<CodingExercise> CodingExercises { get; set; } = new List<CodingExercise>();
 }

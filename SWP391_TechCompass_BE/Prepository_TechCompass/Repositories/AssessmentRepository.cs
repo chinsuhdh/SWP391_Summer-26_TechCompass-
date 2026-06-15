@@ -60,5 +60,52 @@ namespace Repository_TechCompass.Repositories
             // Kéo toàn bộ danh sách Node từ DB lên
             return await _context.SkillNodes.ToListAsync();
         }
+
+        public async Task<SkillNode?> GetSkillNodeByIdAsync(int skillNodeId)
+        {
+            return await _context.SkillNodes.FindAsync(skillNodeId);
+        }
+
+        public async Task<CodingExercise> SaveCodingExerciseAsync(CodingExercise exercise)
+        {
+            _context.CodingExercises.Add(exercise);
+            await _context.SaveChangesAsync();
+            return exercise;
+        }
+
+        public async Task<CodingExercise?> GetCodingExerciseByNodeAsync(int skillNodeId)
+        {
+            return await _context.CodingExercises.FirstOrDefaultAsync(c => c.SkillNodeId == skillNodeId);
+        }
+
+        public async Task<SkillAssessment?> GetLatestAssessmentByNodeAsync(Guid studentId, int skillNodeId)
+        {
+            // Tự động tra cứu StudentId thực tế dựa trên UserId từ Frontend gửi xuống
+            var student = await _context.Students
+                .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
+
+            Guid actualStudentId = student != null ? student.StudentId : studentId;
+
+            return await _context.SkillAssessments
+                .Include(a => a.SkillNode)
+                .Where(a => a.SkillNodeId == skillNodeId)
+                .OrderByDescending(a => a.TakenAt) // Lấy bài mới làm gần đây nhất
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<List<SkillAssessment>> GetAssessmentsByStudentAsync(Guid studentId)
+        {
+            // Xử lý lệch ID tương tự cho màn hình Danh sách
+            var student = await _context.Students
+                .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
+
+            Guid actualStudentId = student != null ? student.StudentId : studentId;
+
+            return await _context.SkillAssessments
+                .Include(a => a.SkillNode)
+                //.Where(a => a.StudentId == actualStudentId)
+                .OrderByDescending(a => a.TakenAt) // Sắp xếp bài mới nhất lên trên
+                .ToListAsync();
+        }
     }
 }

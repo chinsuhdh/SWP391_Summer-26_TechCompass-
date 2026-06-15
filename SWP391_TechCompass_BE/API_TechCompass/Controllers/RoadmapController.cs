@@ -1,11 +1,12 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using System.Security.Claims;
-using System.IdentityModel.Tokens.Jwt;
-using System;
-using System.Threading.Tasks;
+using Service_TechCompass.Services;
 
 namespace API_TechCompass.Controllers
 {
@@ -53,5 +54,6 @@ namespace API_TechCompass.Controllers
             var res = await _roadmapService.MarkNodeCompletedAsync(userId, request);
             return StatusCode(res.StatusCode, new { message = res.Message });
         }
+
     }
 }
