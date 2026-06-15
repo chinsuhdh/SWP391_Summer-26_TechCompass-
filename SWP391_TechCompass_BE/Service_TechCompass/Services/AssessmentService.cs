@@ -201,5 +201,16 @@ Chỉ trả về nội dung nhận xét.";
                 TakenAt = assessment.TakenAt
             };
         }
+
+        public async Task<IEnumerable<object>> GetAllSkillNodesAsync()
+        {
+            var nodes = await _repository.GetAllSkillNodesAsync();
+
+            return nodes.Select(n => new
+            {
+                id = n.SkillNodeId,
+                name = n.NodeName
+            });
+        }
     }
 }

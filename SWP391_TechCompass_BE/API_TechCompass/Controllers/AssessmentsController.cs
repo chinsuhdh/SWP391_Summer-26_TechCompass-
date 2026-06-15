@@ -103,5 +103,23 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = ex.Message });
             }
         }
+
+
+        // GET: api/assessments/all-skill-nodes
+        [HttpGet("all-skill-nodes")]
+        public async Task<IActionResult> GetAllSkillNodes()
+        {
+            try
+            {
+                // Gọi API lấy dữ liệu ĐỘNG 100% từ Database
+                var nodes = await _assessmentService.GetAllSkillNodesAsync();
+
+                return Ok(new { Message = "Lấy danh sách Skill Nodes thành công", Data = nodes });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
     }
 }

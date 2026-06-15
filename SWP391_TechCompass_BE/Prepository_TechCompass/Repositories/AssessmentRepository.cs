@@ -53,5 +53,12 @@ namespace Repository_TechCompass.Repositories
                 .Include(a => a.SkillNode) // Lấy kèm thông tin Node kỹ năng
                 .FirstOrDefaultAsync(a => a.AssessmentId == assessmentId);
         }
+
+        // Thêm vào AssessmentRepository
+        public async Task<List<SkillNode>> GetAllSkillNodesAsync()
+        {
+            // Kéo toàn bộ danh sách Node từ DB lên
+            return await _context.SkillNodes.ToListAsync();
+        }
     }
 }

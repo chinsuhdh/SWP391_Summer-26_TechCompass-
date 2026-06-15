@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using Repository_TechCompass.Models;
 
 namespace Repository_TechCompass.Interfaces
@@ -12,5 +13,7 @@ namespace Repository_TechCompass.Interfaces
         Task<List<AssessmentQuestion>> GetQuestionsByIdsAsync(List<int> questionIds);
 
         Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId);
+
+        Task<List<SkillNode>> GetAllSkillNodesAsync();
     }
 }
