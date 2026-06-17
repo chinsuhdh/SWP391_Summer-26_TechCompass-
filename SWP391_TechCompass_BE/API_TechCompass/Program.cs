@@ -1,15 +1,15 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿// src/API_TechCompass/Program.cs
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Repository_TechCompass;
 using Repository_TechCompass.Repositories;
+using Repository_TechCompass.Interfaces;
 using Service_TechCompass.Interfaces;
 using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
-using Repository_TechCompass.Interfaces;
-// THÊM NAMESPACE CỦA SEMANTIC KERNEL
 using Microsoft.SemanticKernel;
 
 namespace API_TechCompass
@@ -35,13 +35,11 @@ namespace API_TechCompass
             builder.Services.AddScoped<IRoleRepository, RoleRepository>();
             builder.Services.AddScoped<IContentRepository, ContentRepository>();
             builder.Services.AddScoped<IPracticeWorkspaceRepository, PracticeWorkspaceRepository>();
+            builder.Services.AddScoped<IMarketPulseRepository, MarketPulseRepository>();
 
-            // ==========================================
             // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
-            // ==========================================
             var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
             var apiKey = geminiConfig["ApiKey"];
-            // Đọc ModelId từ appsettings, nếu không có thì mặc định dùng gemini-2.5-flash
             var modelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
 
             if (string.IsNullOrEmpty(apiKey))
@@ -51,7 +49,7 @@ namespace API_TechCompass
 
             var kernelBuilder = Kernel.CreateBuilder()
                 .AddGoogleAIGeminiChatCompletion(
-                    modelId: modelId,     // <--- Đã sửa để lấy động từ biến modelId
+                    modelId: modelId,
                     apiKey: apiKey,
                     serviceId: "GeminiChat"
                 );
@@ -66,9 +64,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
             builder.Services.AddScoped<IAdminMentorService, AdminMentorService>();
             builder.Services.AddScoped<IAssessmentService, AssessmentService>();
-
-            builder.Services.AddScoped<IAiTalentService, AiTalentService>(); // <-- Class này giờ sẽ nhận Kernel
-
+            builder.Services.AddScoped<IAiTalentService, AiTalentService>();
             builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
             builder.Services.AddScoped<IRoleService, RoleService>();
             builder.Services.AddScoped<IAdminUserService, AdminUserService>();
@@ -79,14 +75,11 @@ namespace API_TechCompass
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
 
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
+            // Đã xóa các dòng AddScoped thừa để tránh ghi đè lỗi DI
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
-            builder.Services.AddScoped<IQuizSyncService, QuizSyncService>();
-
             builder.Services.AddHttpClient<ICareerService, CareerService>();
-            builder.Services.AddScoped<ICareerService, CareerService>();
-
             builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
-            builder.Services.AddScoped<IPortfolioService, PortfolioService>();
+            builder.Services.AddHttpClient<IMarketPulseService, MarketPulseService>();
 
             // 6. CÁC DỊCH VỤ NỀN & SIGNALR
             builder.Services.AddSignalR();
@@ -129,10 +122,8 @@ namespace API_TechCompass
                 };
             });
 
-            // 9. CẤU HÌNH CONTROLLER & SWAGGER
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
-
             builder.Services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "TechCompass API", Version = "v1" });
@@ -164,7 +155,6 @@ namespace API_TechCompass
 
             var app = builder.Build();
 
-            // 10. PIPELINE MIDDLEWARE
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
@@ -173,7 +163,6 @@ namespace API_TechCompass
 
             app.UseHttpsRedirection();
             app.UseCors("AllowAll");
-
             app.UseAuthentication();
             app.UseAuthorization();
 

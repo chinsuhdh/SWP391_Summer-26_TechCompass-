@@ -70,56 +70,103 @@ namespace Service_TechCompass.Services
         // Task 53, 54, 55: Scrape -> Extract Keyword AI -> Sinh Trend (Dành cho Background Job)
         public async Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync()
         {
-            // Trong thực tế, bạn sẽ dùng thư viện như HtmlAgilityPack để cào web. 
-            // Ở đây, giả lập lấy được 1 mô tả công việc thô từ API Crawler bên thứ 3 hoặc code cào thô.
-            string mockRawDescription = "We are looking for a Backend Developer proficient in C#, .NET Core, SQL Server. Experience with Docker and AWS is a plus.";
-
-            var job = new JobPosting
+            try
             {
-                PostingId = Guid.NewGuid(),
-                JobTitle = "Backend .NET Developer",
-                CompanyName = "Tech StartUp",
-                SourcePlatform = "TopCV",
-                JobDescriptionRaw = mockRawDescription,
-                ScrapedAt = DateTime.Now
-            };
+                // 1. Lấy cấu hình SerpApi từ appsettings.json
+                string serpApiKey = _config["SerpApiConfig:ApiKey"]!;
+                string serpBaseUrl = _config["SerpApiConfig:BaseUrl"] ?? "https://serpapi.com/search.json";
 
-            var allNodes = await _repo.GetAllSkillNodesAsync();
-            var matchedNodes = await ExtractSkillsUsingAiAsync(mockRawDescription, allNodes);
+                // SỬA ĐOẠN NÀY: Đổi sang phạm vi rộng hơn và thêm cờ quốc gia (gl=vn)
+                var keywords = new[] { "Lập trình viên .NET", "IT Backend", ".NET Developer jobs", "Software Engineer C#" };
+                string query = keywords[new Random().Next(keywords.Length)];
 
-            foreach (var node in matchedNodes)
-            {
-                job.SkillNodes.Add(node);
-            }
+                // Mở rộng location ra toàn Việt Nam thay vì khóa cứng ở HCM
+                string location = "Vietnam";
 
-            await _repo.SaveJobPostingAsync(job);
+                // Thêm tham số gl=vn (Google Country = Vietnam) để Google ưu tiên trả về việc làm nội địa
+                string requestUrl = $"{serpBaseUrl}?engine=google_jobs&q={Uri.EscapeDataString(query)}&location={Uri.EscapeDataString(location)}&gl=vn&hl=vi&api_key={serpApiKey}";
 
-            // Task 55: Generate Trend Analytics
-            var trends = new List<TrendAnalysis>();
-            foreach (var node in matchedNodes)
-            {
-                trends.Add(new TrendAnalysis
+                var response = await _httpClient.GetAsync(requestUrl);
+                if (!response.IsSuccessStatusCode)
                 {
-                    // XÓA DÒNG AnalysisId = Guid.NewGuid(),
+                    return (500, "Lỗi khi gọi API cào dữ liệu từ SerpApi.");
+                }
 
-                    SkillNodeId = node.SkillNodeId, // Đây là cột khóa ngoại, vẫn giữ nguyên
-                    AnalyzedDate = DateOnly.FromDateTime(DateTime.Now),
-                    DemandPercent = (decimal)new Random().Next(10, 90),
-                    TrendScore = (decimal)(new Random().NextDouble() * 5)
-                });
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                var serpData = JsonSerializer.Deserialize<SerpApiResponseDto>(jsonResponse);
+
+                // Thêm Log để Debug trực tiếp trên Terminal nếu API không trả về job
+                if (serpData?.JobsResults == null || !serpData.JobsResults.Any())
+                {
+                    Console.WriteLine($"[CẢNH BÁO] SerpApi trả về rỗng. Query: {query}. Nguyên văn JSON: {jsonResponse}");
+                    return (404, "Không tìm thấy công việc nào mới để quét từ SerpApi. Hãy xem Console Log ở Backend để biết chi tiết.");
+                }
+
+                var allNodes = await _repo.GetAllSkillNodesAsync();
+                var trendsToSave = new List<TrendAnalysis>();
+                int newJobsCount = 0;
+
+                // 3. Xử lý từng Job cào về được (Giới hạn Take(5) để test không bị tốn quá nhiều quota API)
+                foreach (var scrapedJob in serpData.JobsResults.Take(5))
+                {
+                    var job = new JobPosting
+                    {
+                        PostingId = Guid.NewGuid(),
+                        JobTitle = scrapedJob.Title ?? "Vị trí lập trình viên",
+                        CompanyName = scrapedJob.CompanyName ?? "Công ty công nghệ",
+                        SourcePlatform = scrapedJob.Source ?? "Google Jobs",
+                        JobDescriptionRaw = scrapedJob.Description ?? "",
+                        ScrapedAt = DateTime.Now
+                    };
+
+                    // Gọi AI bóc tách từ khóa dựa trên Description thật vừa cào được
+                    var matchedNodes = await ExtractSkillsUsingAiAsync(job.JobDescriptionRaw, allNodes);
+
+                    foreach (var node in matchedNodes)
+                    {
+                        job.SkillNodes.Add(node);
+
+                        // Chuẩn bị dữ liệu Trend
+                        trendsToSave.Add(new TrendAnalysis
+                        {
+                            SkillNodeId = node.SkillNodeId,
+                            AnalyzedDate = DateOnly.FromDateTime(DateTime.Now),
+                            DemandPercent = (decimal)new Random().Next(10, 90),
+                            TrendScore = (decimal)(new Random().NextDouble() * 5)
+                        });
+                    }
+
+                    await _repo.SaveJobPostingAsync(job);
+                    newJobsCount++;
+                }
+
+                // 4. Lưu dữ liệu Trend vào DB
+                if (trendsToSave.Any())
+                {
+                    await _repo.SaveTrendAnalysisAsync(trendsToSave);
+                }
+
+                return (200, $"Cào thành công {newJobsCount} công việc thực tế với từ khóa '{query}', bóc tách từ khóa qua AI và cập nhật Trend hoàn tất.");
             }
-            if (trends.Any()) await _repo.SaveTrendAnalysisAsync(trends);
-
-            return (200, "Quét việc làm, bóc tách từ khóa và cập nhật Trend thành công.");
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi hệ thống trong quá trình cào dữ liệu: {ex.Message}");
+            }
         }
 
         // Dùng Gemini AI để map Description thô thành các SkillNode ID trong DB
         private async Task<List<SkillNode>> ExtractSkillsUsingAiAsync(string description, List<SkillNode> allNodes)
         {
+            // Nếu mô tả công việc bị rỗng thì bỏ qua không gọi AI để tiết kiệm chi phí
+            if (string.IsNullOrWhiteSpace(description)) return new List<SkillNode>();
+
             string availableSkills = string.Join(", ", allNodes.Select(n => n.NodeName));
-            string prompt = $@"Phân tích mô tả công việc sau và trích xuất các kỹ năng công nghệ. 
-Chỉ trả về các kỹ năng có trong danh sách cho sẵn này: [{availableSkills}].
-Trả về dưới dạng danh sách ngăn cách bằng dấu phẩy, KHÔNG giải thích.
+
+            // Tối ưu prompt để AI trả về đúng format mảng ngăn cách dấu phẩy
+            string prompt = $@"Bạn là một hệ thống tự động. Dưới đây là danh sách các kỹ năng hệ thống có: [{availableSkills}].
+Nhiệm vụ: Đọc đoạn mô tả công việc sau và trích xuất TẤT CẢ các kỹ năng công nghệ có xuất hiện trong đoạn mô tả và trùng khớp (hoặc gần giống) với danh sách trên.
+ĐỊNH DẠNG TRẢ VỀ: Chỉ in ra tên các kỹ năng, ngăn cách nhau bằng DẤU PHẨY. Tuyệt đối KHÔNG có câu chào hỏi, KHÔNG có bullet point, KHÔNG giải thích.
+Ví dụ: C#, .NET Core, SQL Server
 Mô tả công việc: {description}";
 
             string apiKey = _config["GeminiApiConfig:ApiKey"]!;
@@ -157,9 +204,7 @@ Mô tả công việc: {description}";
                     NodeName = g.Key,
                     DataPoints = g.Select(x => new TrendPointDto
                     {
-                        // SỬA DÒNG NÀY: Dùng ? và ?? để xử lý giá trị null
                         AnalyzedDate = x.AnalyzedDate?.ToDateTime(TimeOnly.MinValue) ?? DateTime.MinValue,
-
                         DemandPercent = x.DemandPercent ?? 0,
                         TrendScore = x.TrendScore ?? 0
                     }).OrderBy(x => x.AnalyzedDate).ToList()

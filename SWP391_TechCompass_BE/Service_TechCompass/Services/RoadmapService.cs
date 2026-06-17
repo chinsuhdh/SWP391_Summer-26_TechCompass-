@@ -33,9 +33,11 @@ namespace Service_TechCompass.Services
             }
 
             // 2. Join bảng SkillNodes và RoadmapProgress dựa trên student.StudentId chuẩn
+            // THÊM orderby ĐỂ ĐẢM BẢO FRONTEND NHẬN ĐƯỢC DATA THEO ĐÚNG TRÌNH TỰ
             var query = from p in _context.RoadmapProgresses
                         join n in _context.SkillNodes on p.SkillNodeId equals n.SkillNodeId
                         where p.StudentId == student.StudentId
+                        orderby n.PriorityLevel ascending // <-- ĐIỂM MẤU CHỐT LÀ ĐÂY
                         select new { p, n };
 
             var studentNodes = await query.ToListAsync();
