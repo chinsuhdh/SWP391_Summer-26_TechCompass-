@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.77.0" />
     <PackageReference Include="Octokit" Version="8.1.1" />
   </ItemGroup>
 

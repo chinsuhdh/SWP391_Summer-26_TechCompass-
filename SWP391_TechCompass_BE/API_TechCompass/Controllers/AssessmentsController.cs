@@ -33,30 +33,63 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // Endpoint 2: Nộp bài và chấm điểm
-        // POST: api/assessments/submit
-        [HttpPost("submit")]
-        public async Task<IActionResult> SubmitQuiz([FromBody] QuizSubmissionDto submission)
+        // POST: api/assessments/submit-exam
+        [HttpPost("submit-exam")]
+        public async Task<IActionResult> SubmitFullExam([FromBody] SubmitFullExamDto submission)
         {
-            if (submission == null || submission.Answers == null)
+            // 1. Kiểm tra Body
+            if (submission == null)
             {
-                return BadRequest("Dữ liệu nộp bài không hợp lệ.");
+                return BadRequest("Dữ liệu nộp bài không hợp lệ (Body rỗng).");
+            }
+
+            // 2. Bắt lỗi khóa ngoại StudentId
+            if (submission.StudentId == Guid.Empty)
+            {
+                return BadRequest("Lỗi: Frontend chưa truyền StudentId.");
+            }
+
+            // 3. Bắt lỗi khóa ngoại SkillNodeId
+            if (submission.SkillNodeId <= 0)
+            {
+                return BadRequest("Lỗi: SkillNodeId không hợp lệ (phải lớn hơn 0).");
+            }
+
+            // 4. Validate dữ liệu từng phần
+            if (submission.QuizAnswers == null || !submission.QuizAnswers.Any())
+            {
+                return BadRequest("Lỗi: Không có câu trả lời trắc nghiệm nào được gửi lên.");
+            }
+
+            if (submission.CodeSubmission == null || string.IsNullOrEmpty(submission.CodeSubmission.SourceCode))
+            {
+                return BadRequest("Lỗi: Mã nguồn bài thực hành không được để trống.");
             }
 
             try
             {
-                var result = await _assessmentService.GradeAndSaveQuizAsync(submission);
+                // Chấm và lưu toàn bộ
+                var result = await _assessmentService.GradeAndSaveFullExamAsync(submission);
 
                 return Ok(new
                 {
-                    Message = "Chấm điểm thành công",
-                    Score = result.TestScore,
-                    Feedback = result.AiFeedback
+                    Message = "Nộp bài và chấm điểm hoàn tất!",
+                    SessionId = result.SessionId,
+                    QuizScore = result.TotalQuizScore,
+                    CodeScore = result.TotalCodeScore
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { Error = ex.Message });
+                Console.WriteLine("\n================ [LỖI LƯU BÀI FULL EXAM] ================");
+                Console.WriteLine($"Message: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+                }
+                Console.WriteLine("=========================================================\n");
+
+                return StatusCode(500, new { Error = "Lỗi hệ thống khi lưu bài", Detail = ex.Message });
             }
         }
 
@@ -79,32 +112,6 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        [HttpPost("submit-code")]
-        public async Task<IActionResult> SubmitCodeTest([FromBody] CodeTestSubmissionDto submission)
-        {
-            if (string.IsNullOrEmpty(submission.SourceCode))
-            {
-                return BadRequest("Mã nguồn không được để trống.");
-            }
-
-            try
-            {
-                var result = await _assessmentService.GradeAndSaveCodeTestAsync(submission);
-
-                return Ok(new
-                {
-                    Message = "Chấm bài và phân tích pattern thành công",
-                    Score = result.TestScore,
-                    AiReview = result.AiFeedback
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = ex.Message });
-            }
-        }
-
-
         // GET: api/assessments/all-skill-nodes
         [HttpGet("all-skill-nodes")]
         public async Task<IActionResult> GetAllSkillNodes()
@@ -123,6 +130,7 @@ namespace API_TechCompass.Controllers
         }
 
         // POST: api/assessments/generate-exercise/{skillNodeId}
+        // POST: api/assessments/generate-exercise/{skillNodeId}
         [HttpPost("generate-exercise/{skillNodeId}")]
         public async Task<IActionResult> GenerateOrGetCodingExercise(int skillNodeId)
         {
@@ -133,6 +141,11 @@ namespace API_TechCompass.Controllers
             }
             catch (Exception ex)
             {
+                // IN LỖI RA CONSOLE ĐỂ BẮT TẬN TAY NẾU AI GẶP VẤN ĐỀ
+                Console.WriteLine("\n================ [LỖI GENERATE EXERCISE] ================");
+                Console.WriteLine(ex.Message);
+                Console.WriteLine("=========================================================\n");
+
                 return StatusCode(500, new { Error = ex.Message });
             }
         }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Repository_TechCompass.Models;
+using System.IO;
 
 namespace Repository_TechCompass;
 
@@ -18,52 +19,35 @@ public partial class Swp391CareerRoadmapContext : DbContext
     }
 
     public virtual DbSet<AiChatSession> AiChatSessions { get; set; }
-
     public virtual DbSet<AiRecommendation> AiRecommendations { get; set; }
-
     public virtual DbSet<ChatMessage> ChatMessages { get; set; }
-
     public virtual DbSet<EPortfolio> EPortfolios { get; set; }
-
     public virtual DbSet<GithubRepository> GithubRepositories { get; set; }
-
     public virtual DbSet<JobPosting> JobPostings { get; set; }
-
     public virtual DbSet<LearningHistory> LearningHistories { get; set; }
-
     public virtual DbSet<LearningResource> LearningResources { get; set; }
-
     public virtual DbSet<Mentor> Mentors { get; set; }
-
     public virtual DbSet<MentorSession> MentorSessions { get; set; }
-
     public virtual DbSet<RoadmapProgress> RoadmapProgresses { get; set; }
-
     public virtual DbSet<Role> Roles { get; set; }
-
     public virtual DbSet<SkillAssessment> SkillAssessments { get; set; }
-
     public virtual DbSet<SkillGapReport> SkillGapReports { get; set; }
-
     public virtual DbSet<SkillNode> SkillNodes { get; set; }
-
     public virtual DbSet<Student> Students { get; set; }
-
     public virtual DbSet<TargetCareerRole> TargetCareerRoles { get; set; }
-
     public virtual DbSet<TechPath> TechPaths { get; set; }
-
     public virtual DbSet<TrendAnalysis> TrendAnalyses { get; set; }
-
     public virtual DbSet<User> Users { get; set; }
-
     public virtual DbSet<AssessmentQuestion> AssessmentQuestions { get; set; }
-
     public virtual DbSet<CodingExercise> CodingExercises { get; set; }
+
+    // NEW DB SETS FOR ASSESSMENT SESSION
+    public virtual DbSet<AssessmentSession> AssessmentSessions { get; set; }
+    public virtual DbSet<AssessmentQuizDetail> AssessmentQuizDetails { get; set; }
+    public virtual DbSet<AssessmentCodeDetail> AssessmentCodeDetails { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-
         if (!optionsBuilder.IsConfigured)
         {
             IConfigurationRoot configuration = new ConfigurationBuilder()
@@ -81,9 +65,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<AiChatSession>(entity =>
         {
             entity.HasKey(e => e.AiSessionId).HasName("PK__ai_chat___1332BF331050D9A4");
-
             entity.ToTable("ai_chat_sessions");
-
             entity.Property(e => e.AiSessionId)
                 .ValueGeneratedNever()
                 .HasColumnName("ai_session_id");
@@ -105,9 +87,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<AiRecommendation>(entity =>
         {
             entity.HasKey(e => e.RecommendationId).HasName("PK__ai_recom__BCB11F4F25DF62E3");
-
             entity.ToTable("ai_recommendations");
-
             entity.Property(e => e.RecommendationId)
                 .ValueGeneratedNever()
                 .HasColumnName("recommendation_id");
@@ -130,9 +110,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<ChatMessage>(entity =>
         {
             entity.HasKey(e => e.MessageId).HasName("PK__chat_mes__0BBF6EE6F0E5B61A");
-
             entity.ToTable("chat_messages");
-
             entity.Property(e => e.MessageId)
                 .ValueGeneratedNever()
                 .HasColumnName("message_id");
@@ -159,13 +137,9 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<EPortfolio>(entity =>
         {
             entity.HasKey(e => e.PortfolioId).HasName("PK__e_portfo__42EE526F1E68FEB5");
-
             entity.ToTable("e_portfolios");
-
             entity.HasIndex(e => e.StudentId, "UQ__e_portfo__2A33069BE8F9E036").IsUnique();
-
             entity.HasIndex(e => e.ShareableUrl, "UQ__e_portfo__6E3379896B463C22").IsUnique();
-
             entity.Property(e => e.PortfolioId)
                 .ValueGeneratedNever()
                 .HasColumnName("portfolio_id");
@@ -188,9 +162,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<GithubRepository>(entity =>
         {
             entity.HasKey(e => e.RepoId).HasName("PK__github_r__E2D3BC807F7B5A6B");
-
             entity.ToTable("github_repositories");
-
             entity.Property(e => e.RepoId)
                 .ValueGeneratedNever()
                 .HasColumnName("repo_id");
@@ -221,9 +193,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<JobPosting>(entity =>
         {
             entity.HasKey(e => e.PostingId).HasName("PK__job_post__945363DE2DAA7746");
-
             entity.ToTable("job_postings");
-
             entity.Property(e => e.PostingId)
                 .ValueGeneratedNever()
                 .HasColumnName("posting_id");
@@ -265,9 +235,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<LearningHistory>(entity =>
         {
             entity.HasKey(e => e.HistoryId).HasName("PK__learning__096AA2E96A280403");
-
             entity.ToTable("learning_histories");
-
             entity.Property(e => e.HistoryId)
                 .ValueGeneratedNever()
                 .HasColumnName("history_id");
@@ -290,9 +258,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<LearningResource>(entity =>
         {
             entity.HasKey(e => e.ResourceId).HasName("PK__learning__4985FC734E1996CD");
-
             entity.ToTable("learning_resources");
-
             entity.Property(e => e.ResourceId).HasColumnName("resource_id");
             entity.Property(e => e.DifficultyLevel)
                 .HasMaxLength(20)
@@ -324,11 +290,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<Mentor>(entity =>
         {
             entity.HasKey(e => e.MentorId).HasName("PK__mentors__E5D27EF3317BF9C8");
-
             entity.ToTable("mentors");
-
             entity.HasIndex(e => e.UserId, "UQ__mentors__B9BE370E28E8D3C1").IsUnique();
-
             entity.Property(e => e.MentorId)
                 .ValueGeneratedNever()
                 .HasColumnName("mentor_id");
@@ -353,9 +316,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<MentorSession>(entity =>
         {
             entity.HasKey(e => e.SessionId).HasName("PK__mentor_s__69B13FDC497F876A");
-
             entity.ToTable("mentor_sessions");
-
             entity.Property(e => e.SessionId)
                 .ValueGeneratedNever()
                 .HasColumnName("session_id");
@@ -393,9 +354,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<RoadmapProgress>(entity =>
         {
             entity.HasKey(e => e.ProgressId).HasName("PK__roadmap___49B3D8C176124995");
-
             entity.ToTable("roadmap_progress");
-
             entity.Property(e => e.ProgressId)
                 .ValueGeneratedNever()
                 .HasColumnName("progress_id");
@@ -430,11 +389,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<Role>(entity =>
         {
             entity.HasKey(e => e.RoleId).HasName("PK__roles__760965CC60832C83");
-
             entity.ToTable("roles");
-
             entity.HasIndex(e => e.RoleName, "UQ__roles__783254B1EEECB4DB").IsUnique();
-
             entity.Property(e => e.RoleId).HasColumnName("role_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.RoleName)
@@ -446,9 +402,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<SkillAssessment>(entity =>
         {
             entity.HasKey(e => e.AssessmentId).HasName("PK__skill_as__00B98C26CD379950");
-
             entity.ToTable("skill_assessments");
-
             entity.Property(e => e.AssessmentId)
                 .ValueGeneratedNever()
                 .HasColumnName("assessment_id");
@@ -477,9 +431,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<SkillGapReport>(entity =>
         {
             entity.HasKey(e => e.ReportId).HasName("PK__skill_ga__779B7C58F7397CFC");
-
             entity.ToTable("skill_gap_reports");
-
             entity.Property(e => e.ReportId)
                 .ValueGeneratedNever()
                 .HasColumnName("report_id");
@@ -502,9 +454,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<SkillNode>(entity =>
         {
             entity.HasKey(e => e.SkillNodeId).HasName("PK__skill_no__F5ABC4BC572DCBB8");
-
             entity.ToTable("skill_nodes");
-
             entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.NodeName)
@@ -513,6 +463,9 @@ public partial class Swp391CareerRoadmapContext : DbContext
             entity.Property(e => e.ParentNodeId).HasColumnName("parent_node_id");
             entity.Property(e => e.PriorityLevel).HasColumnName("priority_level");
             entity.Property(e => e.TechPathId).HasColumnName("tech_path_id");
+            entity.Property(e => e.IsCodingRequired)
+                .HasDefaultValueSql("((1))")
+                .HasColumnName("is_coding_required");
 
             entity.HasOne(d => d.ParentNode).WithMany(p => p.InverseParentNode)
                 .HasForeignKey(d => d.ParentNodeId)
@@ -522,21 +475,14 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey(d => d.TechPathId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_skillnode_techpath");
-            entity.Property(e => e.IsCodingRequired)
-                .HasDefaultValueSql("((1))")
-                .HasColumnName("is_coding_required");
         });
 
         modelBuilder.Entity<Student>(entity =>
         {
             entity.HasKey(e => e.StudentId).HasName("PK__students__2A33069ACD851B21");
-
             entity.ToTable("students");
-
             entity.HasIndex(e => e.StudentCode, "UQ__students__6DF33C45403B5C49").IsUnique();
-
             entity.HasIndex(e => e.UserId, "UQ__students__B9BE370EC1022F7C").IsUnique();
-
             entity.Property(e => e.StudentId)
                 .ValueGeneratedNever()
                 .HasColumnName("student_id");
@@ -567,11 +513,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<TargetCareerRole>(entity =>
         {
             entity.HasKey(e => e.TargetRoleId).HasName("PK__target_c__D04E000A67124F81");
-
             entity.ToTable("target_career_roles");
-
             entity.HasIndex(e => e.RoleName, "UQ__target_c__783254B16E7E4447").IsUnique();
-
             entity.Property(e => e.TargetRoleId).HasColumnName("target_role_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.MarketDemandIndex)
@@ -586,9 +529,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<TechPath>(entity =>
         {
             entity.HasKey(e => e.TechPathId).HasName("PK__tech_pat__E0447470A2DFFE3E");
-
             entity.ToTable("tech_paths");
-
             entity.Property(e => e.TechPathId).HasColumnName("tech_path_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.PathName)
@@ -606,9 +547,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<TrendAnalysis>(entity =>
         {
             entity.HasKey(e => e.AnalysisId).HasName("PK__trend_an__5B14DE5A814E62F5");
-
             entity.ToTable("trend_analysis");
-
             entity.Property(e => e.AnalysisId).HasColumnName("analysis_id");
             entity.Property(e => e.AnalyzedDate).HasColumnName("analyzed_date");
             entity.Property(e => e.DemandPercent)
@@ -628,30 +567,19 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<AssessmentQuestion>(entity =>
         {
             entity.HasKey(e => e.QuestionId).HasName("PK__assessment_questions");
-
             entity.ToTable("assessment_questions");
-
             entity.Property(e => e.QuestionId).HasColumnName("question_id");
-
             entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
-
             entity.Property(e => e.QuestionText).HasColumnName("question_text");
-
             entity.Property(e => e.OptionA).HasColumnName("option_a");
-
             entity.Property(e => e.OptionB).HasColumnName("option_b");
-
             entity.Property(e => e.OptionC).HasColumnName("option_c");
-
             entity.Property(e => e.OptionD).HasColumnName("option_d");
-
             entity.Property(e => e.CorrectAnswer)
                 .HasMaxLength(10)
                 .IsUnicode(false)
                 .HasColumnName("correct_answer");
-
             entity.Property(e => e.Explanation).HasColumnName("explanation");
-
             entity.Property(e => e.DifficultyLevel)
                 .HasMaxLength(20)
                 .IsUnicode(false)
@@ -666,50 +594,38 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.UserId).HasName("PK__users__B9BE370F280C6F01");
-
             entity.ToTable("users");
-
             entity.HasIndex(e => e.Email, "UQ__users__AB6E61641520CA06").IsUnique();
-
             entity.Property(e => e.UserId)
                 .ValueGeneratedNever()
                 .HasColumnName("user_id");
-
             entity.Property(e => e.CreatedAt)
                 .HasColumnType("datetime")
                 .HasColumnName("created_at");
-
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .IsUnicode(false)
                 .HasColumnName("email");
-
             entity.Property(e => e.IsActive)
                 .HasColumnName("is_active");
-
             entity.Property(e => e.PasswordHash)
                 .HasMaxLength(255)
                 .IsUnicode(false)
                 .HasColumnName("password_hash");
-
             entity.Property(e => e.Provider)
                 .HasMaxLength(20)
                 .IsUnicode(false)
                 .HasColumnName("provider");
-
             entity.Property(e => e.ProviderId)
                 .HasMaxLength(255)
                 .IsUnicode(false)
                 .HasColumnName("provider_id");
-
             entity.Property(e => e.RoleId)
                 .HasColumnName("role_id");
-
             entity.Property(e => e.OtpCode)
                 .HasMaxLength(6)
                 .IsUnicode(false)
                 .HasColumnName("OtpCode");
-
             entity.Property(e => e.OtpExpiry)
                 .HasColumnType("datetime")
                 .HasColumnName("OtpExpiry");
@@ -724,25 +640,16 @@ public partial class Swp391CareerRoadmapContext : DbContext
         modelBuilder.Entity<CodingExercise>(entity =>
         {
             entity.HasKey(e => e.ExerciseId).HasName("PK__coding_exercises");
-
             entity.ToTable("coding_exercises");
-
             entity.Property(e => e.ExerciseId).HasColumnName("exercise_id");
-
             entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
-
             entity.Property(e => e.Title)
                 .HasMaxLength(255)
                 .HasColumnName("title");
-
             entity.Property(e => e.ProblemDescription).HasColumnName("problem_description");
-
             entity.Property(e => e.DefaultCodeTemplate).HasColumnName("default_code_template");
-
             entity.Property(e => e.TestStdin).HasColumnName("test_stdin");
-
             entity.Property(e => e.ExpectedOutput).HasColumnName("expected_output");
-
             entity.Property(e => e.DifficultyLevel)
                 .HasMaxLength(20)
                 .IsUnicode(false)
@@ -752,6 +659,91 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey(d => d.SkillNodeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_exercise_skillnode");
+        });
+
+        // ==========================================
+        // CẤU HÌNH CHO CÁC BẢNG MASTER-DETAIL MỚI
+        // ==========================================
+        modelBuilder.Entity<AssessmentSession>(entity =>
+        {
+            entity.HasKey(e => e.SessionId);
+            entity.ToTable("assessment_sessions");
+            entity.Property(e => e.SessionId)
+                .ValueGeneratedNever()
+                .HasColumnName("session_id");
+            entity.Property(e => e.StudentId).HasColumnName("student_id");
+            entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
+            entity.Property(e => e.TotalQuizScore)
+                .HasColumnType("decimal(4, 2)")
+                .HasColumnName("total_quiz_score");
+            entity.Property(e => e.TotalCodeScore)
+                .HasColumnType("decimal(4, 2)")
+                .HasColumnName("total_code_score");
+            entity.Property(e => e.TakenAt)
+                .HasColumnType("datetime")
+                .HasColumnName("taken_at")
+                .HasDefaultValueSql("(getdate())");
+
+            entity.HasOne(d => d.Student)
+                .WithMany()
+                .HasForeignKey(d => d.StudentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_assessment_session_student"); // ĐÃ SỬA Ở ĐÂY
+
+            entity.HasOne(d => d.SkillNode)
+                .WithMany()
+                .HasForeignKey(d => d.SkillNodeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_assessment_session_skillnode"); // ĐÃ SỬA Ở ĐÂY
+        });
+
+        modelBuilder.Entity<AssessmentQuizDetail>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ToTable("assessment_quiz_details");
+            entity.Property(e => e.Id)
+                .ValueGeneratedNever()
+                .HasColumnName("id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.SelectedOption)
+                .HasMaxLength(10)
+                .IsUnicode(false)
+                .HasColumnName("selected_option");
+            entity.Property(e => e.IsCorrect).HasColumnName("is_correct");
+
+            // Khóa ngoại trỏ về bảng Cha (Session)
+            entity.HasOne(d => d.Session)
+                .WithMany(p => p.QuizDetails)
+                .HasForeignKey(d => d.SessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_quizdetail_session");
+
+            // Khóa ngoại trỏ về bảng Câu hỏi
+            entity.HasOne(d => d.Question)
+                .WithMany()
+                .HasForeignKey(d => d.QuestionId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_quizdetail_question");
+        });
+
+        modelBuilder.Entity<AssessmentCodeDetail>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.ToTable("assessment_code_details");
+            entity.Property(e => e.Id)
+                .ValueGeneratedNever()
+                .HasColumnName("id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.SourceCode).HasColumnName("source_code");
+            entity.Property(e => e.AiFeedback).HasColumnName("ai_feedback");
+
+            // Khóa ngoại trỏ về bảng Cha (Session - 1:1)
+            entity.HasOne(d => d.Session)
+                .WithOne(p => p.CodeDetail)
+                .HasForeignKey<AssessmentCodeDetail>(d => d.SessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_codedetail_session");
         });
 
         OnModelCreatingPartial(modelBuilder);

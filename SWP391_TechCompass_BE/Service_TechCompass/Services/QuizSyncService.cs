@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
-using Service_TechCompass.DTOs.Assessment;
 using Service_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
@@ -18,7 +17,6 @@ namespace Service_TechCompass.Services
         private readonly IConfiguration _configuration;
         private readonly IAssessmentRepository _repository;
 
-        // DI Inject HttpClient, Configuration và Repository vào đây
         public QuizSyncService(HttpClient httpClient, IConfiguration configuration, IAssessmentRepository repository)
         {
             _httpClient = httpClient;
@@ -28,86 +26,142 @@ namespace Service_TechCompass.Services
 
         public async Task<int> FetchAndSaveQuestionsAsync(int skillNodeId, string tags, int limit = 10)
         {
-            // 1. Đọc API Key và BaseUrl từ appsettings.json
-            string apiKey = _configuration["QuizApiConfig:ApiKey"];
-            string baseUrl = _configuration["QuizApiConfig:BaseUrl"];
-
-            // 2. Thiết lập Header cho HttpClient (Sử dụng chuẩn Bearer Token)
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-            // 3. Gọi API
-            string requestUrl = $"{baseUrl}?limit={limit}&tags={tags}";
-            var response = await _httpClient.GetAsync(requestUrl);
-
-            if (!response.IsSuccessStatusCode)
+            string apiTag = tags.ToLower() switch
             {
-                throw new Exception("Lỗi khi gọi QuizAPI: " + response.ReasonPhrase);
-            }
-
-            var content = await response.Content.ReadAsStringAsync();
-
-            // Cấu hình tùy chọn JsonSerializer để xử lý hoa thường linh hoạt (tùy chọn)
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
+                var t when t.Contains("c#") || t.Contains("oop") => "c#",
+                var t when t.Contains("sql") || t.Contains("relational") => "mysql",
+                var t when t.Contains("javascript") || t.Contains("dom") => "javascript",
+                var t when t.Contains("react") || t.Contains("hooks") => "react",
+                var t when t.Contains("html") => "html",
+                var t when t.Contains("css") => "css",
+                _ => "linux"
             };
 
-            // 4. Đọc JSON vào Wrapper DTO mới
-            var wrapper = JsonSerializer.Deserialize<QuizApiWrapperDto>(content, options);
+            string apiKey = _configuration["QuizApiConfig:ApiKey"] ?? throw new Exception("Thiếu ApiKey");
+            string baseUrl = _configuration["QuizApiConfig:BaseUrl"] ?? throw new Exception("Thiếu BaseUrl");
 
-            // Nếu lỗi phân tích, hoặc API báo false, hoặc không có dữ liệu trả về thì dừng
-            if (wrapper == null || !wrapper.Success || wrapper.Data == null || wrapper.Data.Count == 0)
+            string requestUrl = $"{baseUrl}?api_key={apiKey}&limit={limit}&tags={apiTag}";
+            try
             {
-                return 0;
-            }
+                var response = await _httpClient.GetAsync(requestUrl);
 
-            // 5. Map dữ liệu từ DTO sang Entity của Database
-            var newQuestions = new List<AssessmentQuestion>();
-
-            foreach (var q in wrapper.Data)
-            {
-                // Thuật toán bóc tách mảng answers thành 4 cột A, B, C, D
-                string[] optionLabels = { "A", "B", "C", "D" };
-                string correctAns = "A"; // Mặc định
-                string optA = null, optB = null, optC = null, optD = null;
-
-                // Xử lý tối đa 4 đáp án
-                for (int i = 0; i < q.Answers.Count && i < 4; i++)
+                if (!response.IsSuccessStatusCode)
                 {
-                    if (i == 0) optA = q.Answers[i].Text;
-                    if (i == 1) optB = q.Answers[i].Text;
-                    if (i == 2) optC = q.Answers[i].Text;
-                    if (i == 3) optD = q.Answers[i].Text;
-
-                    // Nếu isCorrect = true, gán nhãn A/B/C/D tương ứng làm đáp án đúng
-                    if (q.Answers[i].IsCorrect)
-                    {
-                        correctAns = optionLabels[i];
-                    }
+                    Console.WriteLine($"[QuizAPI Error {response.StatusCode}]");
+                    return 0;
                 }
 
-                // Map vào Entity để Entity Framework lưu xuống SQL
-                var entity = new AssessmentQuestion
+                var content = await response.Content.ReadAsStringAsync();
+
+                // Bóc tách JSON linh hoạt
+                JsonDocument doc;
+                try
                 {
-                    SkillNodeId = skillNodeId,
-                    QuestionText = q.Text,
-                    OptionA = optA,
-                    OptionB = optB,
-                    OptionC = optC,
-                    OptionD = optD,
-                    CorrectAnswer = correctAns,
-                    Explanation = q.Explanation ?? "Không có giải thích chi tiết.",
-                    DifficultyLevel = q.Difficulty
-                };
+                    doc = JsonDocument.Parse(content);
+                }
+                catch
+                {
+                    Console.WriteLine("[Error]: Không thể parse JSON");
+                    return 0;
+                }
 
-                newQuestions.Add(entity);
+                using (doc)
+                {
+                    JsonElement root = doc.RootElement;
+                    List<QuizApiQuestionDto> quizList = null;
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+                    if (root.ValueKind == JsonValueKind.Array)
+                    {
+                        quizList = JsonSerializer.Deserialize<List<QuizApiQuestionDto>>(content, options);
+                    }
+                    else if (root.TryGetProperty("data", out var dataElement))
+                    {
+                        quizList = JsonSerializer.Deserialize<List<QuizApiQuestionDto>>(dataElement.GetRawText(), options);
+                    }
+                    else if (root.TryGetProperty("results", out var resElement))
+                    {
+                        quizList = JsonSerializer.Deserialize<List<QuizApiQuestionDto>>(resElement.GetRawText(), options);
+                    }
+
+                    if (quizList == null || quizList.Count == 0) return 0;
+
+                    var newQuestions = new List<AssessmentQuestion>();
+
+                    foreach (var q in quizList)
+                    {
+                        // Lấy đáp án đúng một cách an toàn
+                        string correctAns = "A";
+                        if (q.correct_answers.HasValue && q.correct_answers.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            var ca = q.correct_answers.Value;
+
+                            // Hỗ trợ cả trường hợp API trả về boolean true/false hoặc chuỗi "true"/"false"
+                            bool IsCorrect(JsonElement element) =>
+                                element.ValueKind == JsonValueKind.True ||
+                                (element.ValueKind == JsonValueKind.String && element.GetString()?.ToLower() == "true");
+
+                            if (ca.TryGetProperty("answer_a_correct", out var a) && IsCorrect(a)) correctAns = "A";
+                            else if (ca.TryGetProperty("answer_b_correct", out var b) && IsCorrect(b)) correctAns = "B";
+                            else if (ca.TryGetProperty("answer_c_correct", out var c) && IsCorrect(c)) correctAns = "C";
+                            else if (ca.TryGetProperty("answer_d_correct", out var d) && IsCorrect(d)) correctAns = "D";
+                        }
+
+                        // Lấy các Option một cách an toàn
+                        string optA = null, optB = null, optC = null, optD = null;
+                        if (q.answers.HasValue && q.answers.Value.ValueKind == JsonValueKind.Object)
+                        {
+                            var ans = q.answers.Value;
+                            optA = ans.TryGetProperty("answer_a", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+                            optB = ans.TryGetProperty("answer_b", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null;
+                            optC = ans.TryGetProperty("answer_c", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+                            optD = ans.TryGetProperty("answer_d", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+                        }
+
+                        var entity = new AssessmentQuestion
+                        {
+                            SkillNodeId = skillNodeId,
+                            QuestionText = q.question ?? q.text ?? "Câu hỏi không xác định?",
+                            OptionA = optA,
+                            OptionB = optB,
+                            OptionC = optC,
+                            OptionD = optD,
+                            CorrectAnswer = correctAns,
+                            Explanation = q.explanation ?? "Không có giải thích chi tiết.",
+                            DifficultyLevel = q.difficulty ?? "Easy"
+                        };
+
+                        // Đảm bảo lúc nào cũng có ít nhất 2 đáp án (tránh lỗi UI về sau)
+                        if (string.IsNullOrEmpty(entity.OptionA)) entity.OptionA = "True / Đúng";
+                        if (string.IsNullOrEmpty(entity.OptionB)) entity.OptionB = "False / Sai";
+
+                        newQuestions.Add(entity);
+                    }
+
+                    await _repository.SaveQuestionsAsync(newQuestions);
+                    return newQuestions.Count;
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Sync Exception]: {ex.Message}");
+                return 0;
+            }
+        }
 
-            // 6. Lưu vào Database
-            await _repository.SaveQuestionsAsync(newQuestions);
+        // LỚP DTO BULLETPROOF
+        private class QuizApiQuestionDto
+        {
+            public string? id { get; set; }
+            public string? question { get; set; }
+            public string? text { get; set; }
+            public string? description { get; set; }
+            public string? explanation { get; set; }
+            public string? difficulty { get; set; }
 
-            return newQuestions.Count;
+            // Thay đổi sang JsonElement? để hứng bất kỳ định dạng nào API quăng ra (Object, Array, Null...)
+            public JsonElement? answers { get; set; }
+            public JsonElement? correct_answers { get; set; }
         }
     }
 }

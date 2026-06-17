@@ -1,25 +1,32 @@
-﻿using System.Net.Http.Json;
-using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
+// THÊM NAMESPACE SEMANTIC KERNEL
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace Service_TechCompass.Services
 {
     public class SkillGapReportService : ISkillGapReportService
     {
         private readonly ISkillGapReportRepository _repository;
-        private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
+        private readonly IChatCompletionService _chatCompletionService; // Thay thế HttpClient bằng SK
 
-        // XÓA BỎ IWebHostEnvironment ở Constructor này
-        public SkillGapReportService(ISkillGapReportRepository repository, HttpClient httpClient, IConfiguration configuration)
+        // Loại bỏ hoàn toàn HttpClient khỏi Constructor
+        public SkillGapReportService(ISkillGapReportRepository repository, IConfiguration configuration, Kernel kernel)
         {
             _repository = repository;
-            _httpClient = httpClient;
             _configuration = configuration;
+            // Khởi tạo engine chat completion của Gemini
+            _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
         public async Task<SkillGapReportDto> GenerateGapReportAsync(Guid studentId, string webRootPath)
@@ -31,18 +38,17 @@ namespace Service_TechCompass.Services
             var requiredNodes = student.TargetRole.TechPaths
                                        .SelectMany(tp => tp.SkillNodes)
                                        .Select(n => n.NodeName)
-                                       .Distinct().ToList();
+                                       .MakeDistinct().ToList();
 
             var passedNodes = student.SkillAssessments
                                      .Where(a => a.TestScore >= 5 && a.SkillNode != null)
                                      .Select(a => a.SkillNode.NodeName)
-                                     .Distinct().ToList();
+                                     .MakeDistinct().ToList();
 
             var missingSkills = requiredNodes.Except(passedNodes).ToList();
 
             string aiSummary = await GenerateAiSummaryAsync(student.TargetRole.RoleName, passedNodes, missingSkills);
 
-            // Truyền trực tiếp webRootPath nhận được từ Controller vào đây
             string fileUrl = await GenerateMockPdfFileAsync(student.StudentId, student.FullName, aiSummary, missingSkills, webRootPath);
 
             var report = new SkillGapReport
@@ -67,33 +73,28 @@ namespace Service_TechCompass.Services
 
         private async Task<string> GenerateAiSummaryAsync(string roleName, List<string> passed, List<string> missing)
         {
+            var chatHistory = new ChatHistory();
+            chatHistory.AddSystemMessage("Bạn là chuyên gia phân tích nhân sự và kỹ năng ngành IT (Tech Career Advisor).");
+
             string prompt = $"Sinh viên đang hướng tới vai trò '{roleName}'. " +
                             $"Kỹ năng đã có: {string.Join(", ", passed)}. " +
                             $"Kỹ năng còn thiếu: {string.Join(", ", missing)}. " +
-                            $"Hãy viết 1 đoạn văn ngắn (tối đa 4 câu) đánh giá lộ trình và ưu tiên học kỹ năng nào trước để nhanh chóng đáp ứng nhu cầu tuyển dụng.";
+                            $"Hãy viết 1 đoạn văn ngắn (tối đa 4 câu) bằng tiếng Việt đánh giá lộ trình và ưu tiên học kỹ năng nào trước để nhanh chóng đáp ứng nhu cầu tuyển dụng.";
 
-            string apiKey = _configuration["GeminiApiConfig:ApiKey"];
-            string baseUrl = _configuration["GeminiApiConfig:BaseUrl"];
-            string requestUrl = $"{baseUrl}?key={apiKey}";
-
-            var payload = new { contents = new[] { new { parts = new[] { new { text = prompt } } } } };
+            chatHistory.AddUserMessage(prompt);
 
             try
             {
-                var response = await _httpClient.PostAsJsonAsync(requestUrl, payload);
-                if (response.IsSuccessStatusCode)
-                {
-                    var responseData = await response.Content.ReadAsStringAsync();
-                    var geminiResponse = JsonSerializer.Deserialize<GeminiResponseDto>(responseData, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    return geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "Phân tích khoảng trống kỹ năng hoàn tất.";
-                }
+                // Đăng ký gọi kết nối API thông qua lõi kết nối Semantic Kernel
+                var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
+                return response.ToString() ?? "Phân tích khoảng trống kỹ năng hoàn tất.";
             }
-            catch { }
-
-            return "Hệ thống AI hiện không khả dụng, nhưng bạn có thể xem chi tiết kỹ năng còn thiếu trong file Report.";
+            catch
+            {
+                return "Hệ thống AI hiện không khả dụng, nhưng bạn có thể xem chi tiết kỹ năng còn thiếu trong file Report.";
+            }
         }
 
-        // Nhận thêm biến webRootPath từ hàm gọi
         private async Task<string> GenerateMockPdfFileAsync(Guid studentId, string studentName, string summary, List<string> missingSkills, string webRootPath)
         {
             string folderPath = Path.Combine(webRootPath, "reports");
@@ -112,6 +113,15 @@ namespace Service_TechCompass.Services
             await File.WriteAllTextAsync(filePath, htmlContent);
 
             return $"/reports/{fileName}";
+        }
+    }
+
+    // Hàm mở rộng nội bộ hỗ trợ loại bỏ trùng lặp phần tử danh sách nhanh
+    internal static class IEnumerableExtensions
+    {
+        public static IEnumerable<T> MakeDistinct<T>(this IEnumerable<T> source)
+        {
+            return source.Distinct();
         }
     }
 }

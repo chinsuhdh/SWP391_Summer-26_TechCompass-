@@ -22,5 +22,7 @@ namespace Service_TechCompass.Interfaces
 
         Task<IEnumerable<object>> GetMyAssessmentHistoryListAsync(Guid studentId);
         Task<object?> GetAssessmentDetailByIdAsync(Guid assessmentId);
+
+        Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission);
     }
 }

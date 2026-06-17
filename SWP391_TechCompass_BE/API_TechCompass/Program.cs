@@ -9,6 +9,8 @@ using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
 using Repository_TechCompass.Interfaces;
+// THÊM NAMESPACE CỦA SEMANTIC KERNEL
+using Microsoft.SemanticKernel;
 
 namespace API_TechCompass
 {
@@ -32,13 +34,31 @@ namespace API_TechCompass
             builder.Services.AddScoped<IMentorBookingRepository, MentorBookingRepository>();
             builder.Services.AddScoped<IRoleRepository, RoleRepository>();
             builder.Services.AddScoped<IContentRepository, ContentRepository>();
-
-            // THÊM DÒNG NÀY VÀO ĐỂ FIX LỖI:
             builder.Services.AddScoped<IPracticeWorkspaceRepository, PracticeWorkspaceRepository>();
 
+            // ==========================================
+            // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
+            // ==========================================
+            var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
+            var apiKey = geminiConfig["ApiKey"];
+            // Đọc ModelId từ appsettings, nếu không có thì mặc định dùng gemini-2.5-flash
+            var modelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
 
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                throw new InvalidOperationException("[LỖI CẤU HÌNH NGHIÊM TRỌNG]: API Key của Gemini bị rỗng!");
+            }
 
-            // 3. ĐĂNG KÝ SERVICE
+            var kernelBuilder = Kernel.CreateBuilder()
+                .AddGoogleAIGeminiChatCompletion(
+                    modelId: modelId,     // <--- Đã sửa để lấy động từ biến modelId
+                    apiKey: apiKey,
+                    serviceId: "GeminiChat"
+                );
+
+            builder.Services.AddTransient<Kernel>(sp => kernelBuilder.Build());
+
+            // 4. ĐĂNG KÝ SERVICE
             builder.Services.AddScoped<IAuthService, AuthService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
             builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
@@ -46,7 +66,9 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
             builder.Services.AddScoped<IAdminMentorService, AdminMentorService>();
             builder.Services.AddScoped<IAssessmentService, AssessmentService>();
-            builder.Services.AddScoped<IAiTalentService, AiTalentService>();
+
+            builder.Services.AddScoped<IAiTalentService, AiTalentService>(); // <-- Class này giờ sẽ nhận Kernel
+
             builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
             builder.Services.AddScoped<IRoleService, RoleService>();
             builder.Services.AddScoped<IAdminUserService, AdminUserService>();
@@ -54,11 +76,9 @@ namespace API_TechCompass
             builder.Services.AddScoped<ILearningHubService, LearningHubService>();
             builder.Services.AddScoped<IAdminContentService, AdminContentService>();
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
-
-            // Đăng ký Service cho luồng thực hành Code (Fix lỗi Unable to resolve service)
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
 
-            // 4. ĐĂNG KÝ HTTP CLIENT SERVICES (Dành cho các Service gọi API bên ngoài)
+            // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddScoped<IQuizSyncService, QuizSyncService>();
 
@@ -68,13 +88,13 @@ namespace API_TechCompass
             builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
 
-            // 5. CÁC DỊCH VỤ NỀN & SIGNALR
+            // 6. CÁC DỊCH VỤ NỀN & SIGNALR
             builder.Services.AddSignalR();
             builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
             builder.Services.AddScoped<ITelemetryService, TelemetryService>();
             builder.Services.AddHostedService<TelemetryWorker>();
 
-            // 6. CẤU HÌNH CORS
+            // 7. CẤU HÌNH CORS
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll",
@@ -86,7 +106,7 @@ namespace API_TechCompass
                     });
             });
 
-            // 7. CẤU HÌNH AUTHENTICATION & JWT
+            // 8. CẤU HÌNH AUTHENTICATION & JWT
             var jwtConfig = builder.Configuration.GetSection("Jwt");
             var secretKey = jwtConfig["Key"];
 
@@ -109,7 +129,7 @@ namespace API_TechCompass
                 };
             });
 
-            // 8. CẤU HÌNH CONTROLLER & SWAGGER
+            // 9. CẤU HÌNH CONTROLLER & SWAGGER
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
 
@@ -144,7 +164,7 @@ namespace API_TechCompass
 
             var app = builder.Build();
 
-            // 9. PIPELINE MIDDLEWARE
+            // 10. PIPELINE MIDDLEWARE
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();

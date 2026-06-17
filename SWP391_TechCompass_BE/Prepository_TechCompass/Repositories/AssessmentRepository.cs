@@ -1,4 +1,7 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
@@ -14,14 +17,10 @@ namespace Repository_TechCompass.Repositories
             _context = context;
         }
 
-        public async Task<SkillAssessment> SaveAssessmentResultAsync(SkillAssessment assessment)
-        {
-            _context.SkillAssessments.Add(assessment);
-            await _context.SaveChangesAsync();
-            return assessment; // Trả về entity đã có AssessmentId
-        }
+        // ==========================================
+        // CÁC HÀM XỬ LÝ ĐỀ THI / CÂU HỎI (QUIZ & EXERCISE)
+        // ==========================================
 
-        // Thêm implement cho hàm vừa khai báo
         public async Task<bool> SaveQuestionsAsync(List<AssessmentQuestion> questions)
         {
             await _context.AssessmentQuestions.AddRangeAsync(questions);
@@ -31,7 +30,6 @@ namespace Repository_TechCompass.Repositories
 
         public async Task<List<AssessmentQuestion>> GetQuestionsBySkillNodeAsync(int skillNodeId, int limit = 10)
         {
-            // Lấy random 10 câu hỏi thuộc kỹ năng này
             return await _context.AssessmentQuestions
                 .Where(q => q.SkillNodeId == skillNodeId)
                 .OrderBy(r => Guid.NewGuid()) // Trộn đề ngẫu nhiên
@@ -41,23 +39,13 @@ namespace Repository_TechCompass.Repositories
 
         public async Task<List<AssessmentQuestion>> GetQuestionsByIdsAsync(List<int> questionIds)
         {
-            // Lấy ra đáp án chuẩn của các câu mà sinh viên vừa nộp
             return await _context.AssessmentQuestions
                 .Where(q => questionIds.Contains(q.QuestionId))
                 .ToListAsync();
         }
 
-        public async Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId)
-        {
-            return await _context.SkillAssessments
-                .Include(a => a.SkillNode) // Lấy kèm thông tin Node kỹ năng
-                .FirstOrDefaultAsync(a => a.AssessmentId == assessmentId);
-        }
-
-        // Thêm vào AssessmentRepository
         public async Task<List<SkillNode>> GetAllSkillNodesAsync()
         {
-            // Kéo toàn bộ danh sách Node từ DB lên
             return await _context.SkillNodes.ToListAsync();
         }
 
@@ -78,33 +66,98 @@ namespace Repository_TechCompass.Repositories
             return await _context.CodingExercises.FirstOrDefaultAsync(c => c.SkillNodeId == skillNodeId);
         }
 
-        public async Task<SkillAssessment?> GetLatestAssessmentByNodeAsync(Guid studentId, int skillNodeId)
+
+        // ==========================================
+        // CÁC HÀM XỬ LÝ NEW ARCHITECTURE (ASSESSMENT SESSION)
+        // ==========================================
+
+        public async Task<AssessmentSession> SaveAssessmentSessionAsync(AssessmentSession session)
         {
-            // Tự động tra cứu StudentId thực tế dựa trên UserId từ Frontend gửi xuống
+            _context.AssessmentSessions.Add(session);
+            await _context.SaveChangesAsync();
+            return session;
+        }
+
+        public async Task<AssessmentSession?> GetAssessmentSessionByIdAsync(Guid sessionId)
+        {
+            return await _context.AssessmentSessions
+                .Include(s => s.SkillNode)
+                .Include(s => s.CodeDetail) // Eager loading bảng con chứa AI Feedback
+                .Include(s => s.QuizDetails) // Eager loading bảng con chứa đáp án trắc nghiệm
+                    .ThenInclude(qd => qd.Question) // Kết nối sang bảng câu hỏi gốc để lấy text câu hỏi và đáp án đúng
+                .FirstOrDefaultAsync(s => s.SessionId == sessionId);
+        }
+
+        public async Task<AssessmentSession?> GetLatestAssessmentSessionByNodeAsync(Guid studentId, int skillNodeId)
+        {
             var student = await _context.Students
                 .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
 
+            Guid actualStudentId = student != null ? student.StudentId : studentId;
+
+            return await _context.AssessmentSessions
+                .Include(s => s.SkillNode)
+                .Include(s => s.CodeDetail)
+                .Where(s => s.StudentId == actualStudentId && s.SkillNodeId == skillNodeId)
+                .OrderByDescending(s => s.TakenAt) // Lấy phiên làm gần nhất
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<List<AssessmentSession>> GetAssessmentSessionsByStudentAsync(Guid studentId)
+        {
+            var student = await _context.Students
+                .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
+
+            Guid actualStudentId = student != null ? student.StudentId : studentId;
+
+            return await _context.AssessmentSessions
+                .Include(s => s.SkillNode)
+                .Where(s => s.StudentId == actualStudentId)
+                .OrderByDescending(s => s.TakenAt) // Sắp xếp phiên mới nhất lên đầu
+                .ToListAsync();
+        }
+
+
+        // ==========================================
+        // CÁC HÀM LEGACY (BẢNG SKILL_ASSESSMENT CŨ - GIỮ LẠI TRÁNH LỖI DỰ ÁN)
+        // ==========================================
+
+        public async Task<SkillAssessment> SaveAssessmentResultAsync(SkillAssessment assessment)
+        {
+            _context.SkillAssessments.Add(assessment);
+            await _context.SaveChangesAsync();
+            return assessment;
+        }
+
+        public async Task<SkillAssessment?> GetAssessmentByIdAsync(Guid assessmentId)
+        {
+            return await _context.SkillAssessments
+                .Include(a => a.SkillNode)
+                .FirstOrDefaultAsync(a => a.AssessmentId == assessmentId);
+        }
+
+        public async Task<SkillAssessment?> GetLatestAssessmentByNodeAsync(Guid studentId, int skillNodeId)
+        {
+            var student = await _context.Students
+                .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
             Guid actualStudentId = student != null ? student.StudentId : studentId;
 
             return await _context.SkillAssessments
                 .Include(a => a.SkillNode)
                 .Where(a => a.SkillNodeId == skillNodeId)
-                .OrderByDescending(a => a.TakenAt) // Lấy bài mới làm gần đây nhất
+                .OrderByDescending(a => a.TakenAt)
                 .FirstOrDefaultAsync();
         }
 
         public async Task<List<SkillAssessment>> GetAssessmentsByStudentAsync(Guid studentId)
         {
-            // Xử lý lệch ID tương tự cho màn hình Danh sách
             var student = await _context.Students
                 .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
-
             Guid actualStudentId = student != null ? student.StudentId : studentId;
 
             return await _context.SkillAssessments
                 .Include(a => a.SkillNode)
-                //.Where(a => a.StudentId == actualStudentId)
-                .OrderByDescending(a => a.TakenAt) // Sắp xếp bài mới nhất lên trên
+                .OrderByDescending(a => a.TakenAt)
                 .ToListAsync();
         }
     }
