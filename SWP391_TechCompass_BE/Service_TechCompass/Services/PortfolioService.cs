@@ -75,8 +75,17 @@ namespace Service_TechCompass.Services
 
             try
             {
-                // Sử dụng Octokit để gọi GitHub API
+                // Khởi tạo Client
                 var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
+
+                // ĐÃ FIX: Nhúng Personal Access Token vào để xé rào Rate Limit lên 5000 req/giờ
+                var githubToken = _config["GithubConfig:PersonalAccessToken"];
+                if (!string.IsNullOrEmpty(githubToken))
+                {
+                    github.Credentials = new Credentials(githubToken);
+                }
+
+                // Gọi API lấy danh sách Repo
                 var repos = await github.Repository.GetAllForUser(githubUsername);
 
                 int syncCount = 0;
@@ -108,6 +117,11 @@ namespace Service_TechCompass.Services
                 }
 
                 return (200, $"Đồng bộ thành công {syncCount} repositories từ GitHub.");
+            }
+            // Thêm catch riêng cho lỗi Limit để Backend không bị sập
+            catch (RateLimitExceededException)
+            {
+                return (429, "Hệ thống đã đạt giới hạn lấy dữ liệu từ GitHub. Vui lòng kiểm tra lại cấu hình Personal Access Token hoặc thử lại sau 1 giờ.");
             }
             catch (Exception ex)
             {
