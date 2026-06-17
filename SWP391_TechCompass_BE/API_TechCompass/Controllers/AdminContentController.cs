@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
+using System.Threading.Tasks;
 
 namespace API_TechCompass.Controllers
 {
@@ -48,6 +49,27 @@ namespace API_TechCompass.Controllers
             if (!IsAdminUser()) return StatusCode(403, new { message = "Không có quyền Admin." });
             var res = await _contentService.CreateLearningResourceAsync(request);
             return StatusCode(res.StatusCode, new { message = res.Message });
+        }
+
+        // --- API ĐỒNG BỘ ROADMAP TỪ GITHUB ---
+        [HttpPost("sync-roadmap")]
+        public async Task<IActionResult> SyncRoadmap([FromQuery] string rawUrl, [FromQuery] int targetRoleId)
+        {
+            if (!IsAdminUser()) return StatusCode(403, new { message = "Không có quyền Admin." });
+
+            if (string.IsNullOrEmpty(rawUrl) || targetRoleId <= 0)
+            {
+                return BadRequest(new { message = "Thiếu rawUrl hoặc targetRoleId hợp lệ." });
+            }
+
+            var res = await _contentService.SyncRoadmapFromGitHubAsync(rawUrl, targetRoleId);
+
+            if (res.StatusCode != 200)
+            {
+                return StatusCode(res.StatusCode, new { message = res.Message });
+            }
+
+            return Ok(new { message = res.Message });
         }
     }
 }

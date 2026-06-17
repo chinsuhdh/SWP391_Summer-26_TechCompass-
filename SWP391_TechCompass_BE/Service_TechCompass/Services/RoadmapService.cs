@@ -25,20 +25,27 @@ namespace Service_TechCompass.Services
 
         public async Task<(int StatusCode, string Message, List<SkillNodeDto>? Data)> GetSkillTreeAsync(Guid userId)
         {
-            // 1. Join bảng SkillNodes và RoadmapProgress
+            // 1. Lấy thông tin StudentId từ UserId của Token
+            var student = _userRepo.GetStudentByUserId(userId);
+            if (student == null)
+            {
+                return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+            }
+
+            // 2. Join bảng SkillNodes và RoadmapProgress dựa trên student.StudentId chuẩn
             var query = from p in _context.RoadmapProgresses
                         join n in _context.SkillNodes on p.SkillNodeId equals n.SkillNodeId
-                        where p.StudentId == userId
+                        where p.StudentId == student.StudentId
                         select new { p, n };
 
             var studentNodes = await query.ToListAsync();
             var skillTree = new List<SkillNodeDto>();
 
-            // 2. Chuyển đổi và kiểm tra điều kiện Khóa (IsLocked)
+            // 3. Chuyển đổi và kiểm tra điều kiện Khóa (IsLocked)
             foreach (var item in studentNodes)
             {
-                // Gọi sang Engine để xem Node này có bị khóa (do chưa học Node cha) không
-                var validation = await _engineService.ValidatePrerequisiteAsync(userId, item.n.SkillNodeId);
+                // Gọi sang Engine truyền chuẩn StudentId để check xem Node cha đã học xong chưa
+                var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, item.n.SkillNodeId);
 
                 skillTree.Add(new SkillNodeDto
                 {
@@ -56,13 +63,21 @@ namespace Service_TechCompass.Services
 
         public async Task<(int StatusCode, string Message)> MarkNodeCompletedAsync(Guid userId, MarkNodeCompletedDto request)
         {
+            // 1. Lấy thông tin StudentId từ UserId của Token
+            var student = _userRepo.GetStudentByUserId(userId);
+            if (student == null)
+            {
+                return (404, "Không tìm thấy hồ sơ sinh viên.");
+            }
+
+            // 2. Tìm đúng tiến độ theo hồ sơ StudentId
             var progress = await _context.RoadmapProgresses
-                .FirstOrDefaultAsync(p => p.StudentId == userId && p.SkillNodeId == request.NodeId);
+                .FirstOrDefaultAsync(p => p.StudentId == student.StudentId && p.SkillNodeId == request.NodeId);
 
             if (progress == null) return (404, "Không tìm thấy tiến độ của kỹ năng này.");
 
-            // Kiểm tra xem có ăn gian (Gọi API hoàn thành Node bị khóa) không
-            var validation = await _engineService.ValidatePrerequisiteAsync(userId, request.NodeId);
+            // 3. Kiểm tra điều kiện tiên quyết bằng StudentId tránh tình trạng ăn gian gọi API trực tiếp
+            var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, request.NodeId);
             if (!validation.IsValid) return (403, "Bạn không thể hoàn thành bài học đang bị khóa.");
 
             progress.Status = "Completed";
@@ -72,14 +87,22 @@ namespace Service_TechCompass.Services
 
             await _context.SaveChangesAsync();
 
-            return (200, $"Chúc mừng! Đã hoàn thành kỹ năng.");
+            return (200, "Chúc mừng! Đã hoàn thành kỹ năng.");
         }
 
         public async Task<(int StatusCode, string Message, DashboardSummaryDto? Data)> GetStudentDashboardAsync(Guid userId)
         {
+            // 1. Lấy thông tin StudentId từ UserId của Token
+            var student = _userRepo.GetStudentByUserId(userId);
+            if (student == null)
+            {
+                return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+            }
+
+            // 2. Lấy danh sách tiến độ dựa trên StudentId thực tế
             var progressList = await _context.RoadmapProgresses
                 .Include(p => p.SkillNode)
-                .Where(p => p.StudentId == userId)
+                .Where(p => p.StudentId == student.StudentId)
                 .ToListAsync();
 
             if (!progressList.Any()) return (404, "Chưa có lộ trình học tập. Vui lòng tạo lộ trình.", null);
@@ -88,11 +111,12 @@ namespace Service_TechCompass.Services
             int completedNodes = progressList.Count(p => p.Status == "Completed");
             double progressPercent = totalNodes > 0 ? Math.Round(((double)completedNodes / totalNodes) * 100, 2) : 0;
 
-            // Tìm Next Skill (Node có Parent đã học xong nhưng chính nó thì chưa học)
+            // 3. Tìm Next Skill (Node có Parent đã học xong nhưng chính nó thì chưa học)
             SkillNodeDto? nextSkillDto = null;
             foreach (var p in progressList.Where(x => x.Status != "Completed"))
             {
-                var validation = await _engineService.ValidatePrerequisiteAsync(userId, p.SkillNodeId);
+                // Kiểm tra điều kiện mở khóa với StudentId thực tế
+                var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, p.SkillNodeId);
                 if (validation.IsValid) // Đủ điều kiện học
                 {
                     nextSkillDto = new SkillNodeDto
@@ -101,7 +125,7 @@ namespace Service_TechCompass.Services
                         NodeName = p.SkillNode.NodeName,
                         Description = p.SkillNode.Description
                     };
-                    break; // Chỉ lấy 1 node tiếp theo
+                    break; // Chỉ lấy 1 node kế tiếp khả dụng
                 }
             }
 
@@ -111,7 +135,7 @@ namespace Service_TechCompass.Services
                 CompletedNodes = completedNodes,
                 ProgressPercentage = progressPercent,
                 NextSkill = nextSkillDto,
-                TechTrends = new List<TechTrendDto>() // Sẽ xử lý thật ở module Market Analytics
+                TechTrends = new List<TechTrendDto>() // Sẽ xử lý thực tế ở module Market Analytics
             };
 
             return (200, "Lấy thông tin tiến độ thành công.", dashboardData);

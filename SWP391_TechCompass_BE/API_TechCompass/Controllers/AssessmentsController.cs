@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Service_TechCompass.Interfaces;
 using Service_TechCompass.DTOs.Assessment;
@@ -11,10 +12,15 @@ namespace API_TechCompass.Controllers
     public class AssessmentsController : ControllerBase
     {
         private readonly IAssessmentService _assessmentService;
+        private readonly IRoadmapEngineService _roadmapEngineService; // BỔ SUNG DI ENGINE
 
-        public AssessmentsController(IAssessmentService assessmentService)
+        // INJECT VÀO CONSTRUCTOR
+        public AssessmentsController(
+            IAssessmentService assessmentService,
+            IRoadmapEngineService roadmapEngineService)
         {
             _assessmentService = assessmentService;
+            _roadmapEngineService = roadmapEngineService;
         }
 
         // Endpoint 1: Lấy đề thi trắc nghiệm
@@ -68,12 +74,20 @@ namespace API_TechCompass.Controllers
 
             try
             {
-                // Chấm và lưu toàn bộ
+                // Chấm và lưu toàn bộ (Bảng Session, QuizDetails, CodeDetails)
                 var result = await _assessmentService.GradeAndSaveFullExamAsync(submission);
+
+                // BƯỚC QUAN TRỌNG NHẤT: ĐỒNG BỘ ĐIỂM SỐ SANG LỘ TRÌNH HỌC TẬP
+                await _roadmapEngineService.SyncProgressAfterAssessmentAsync(
+                    submission.StudentId,
+                    submission.SkillNodeId,
+                    result.TotalQuizScore,
+                    result.TotalCodeScore
+                );
 
                 return Ok(new
                 {
-                    Message = "Nộp bài và chấm điểm hoàn tất!",
+                    Message = "Nộp bài, chấm điểm và cập nhật lộ trình hoàn tất!",
                     SessionId = result.SessionId,
                     QuizScore = result.TotalQuizScore,
                     CodeScore = result.TotalCodeScore
@@ -95,10 +109,10 @@ namespace API_TechCompass.Controllers
 
         [HttpPost("sync-quiz-api")]
         public async Task<IActionResult> SyncQuestionsFromExternalApi(
-    [FromServices] IQuizSyncService _quizSyncService,
-    [FromQuery] int skillNodeId,
-    [FromQuery] string tags,
-    [FromQuery] int limit = 10)
+            [FromServices] IQuizSyncService _quizSyncService,
+            [FromQuery] int skillNodeId,
+            [FromQuery] string tags,
+            [FromQuery] int limit = 10)
         {
             try
             {
@@ -129,7 +143,6 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // POST: api/assessments/generate-exercise/{skillNodeId}
         // POST: api/assessments/generate-exercise/{skillNodeId}
         [HttpPost("generate-exercise/{skillNodeId}")]
         public async Task<IActionResult> GenerateOrGetCodingExercise(int skillNodeId)

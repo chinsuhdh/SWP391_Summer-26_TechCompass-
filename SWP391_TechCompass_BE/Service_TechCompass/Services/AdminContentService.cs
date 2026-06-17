@@ -1,5 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
@@ -234,6 +237,82 @@ namespace Service_TechCompass.Services
             _contentRepo.DeleteResource(res);
             _contentRepo.SaveChanges();
             return Task.FromResult<(int, string)>((200, "Xóa Learning Resource thành công."));
+        }
+        #endregion
+
+        #region ROADMAP GITHUB SYNC
+        public async Task<(int StatusCode, string Message)> SyncRoadmapFromGitHubAsync(string rawUrl, int targetRoleId)
+        {
+            try
+            {
+                // 1. Tải JSON từ GitHub Raw
+                using var client = new HttpClient();
+                var jsonResponse = await client.GetStringAsync(rawUrl);
+
+                // Config bỏ qua phân biệt hoa thường khi parse JSON
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var roadmapData = JsonSerializer.Deserialize<RoadmapShDto>(jsonResponse, options);
+
+                if (roadmapData == null || roadmapData.Items == null)
+                    return (400, "Lỗi đọc file JSON hoặc định dạng không khớp.");
+
+                // 2. Tạo TechPath mới (Bộ khung gốc)
+                var techPath = new TechPath
+                {
+                    PathName = roadmapData.Title ?? "Imported Roadmap",
+                    Description = roadmapData.Description ?? "Dữ liệu được đồng bộ từ Github",
+                    TargetRoleId = targetRoleId,
+                    TotalNodes = 0
+                };
+
+                _contentRepo.AddTechPath(techPath);
+                _contentRepo.SaveChanges(); // Lưu để sinh ra TechPathId tự động
+
+                // 3. Hàm đệ quy để lưu SkillNodes (Móc nối ID Cha - Con)
+                int totalNodesAdded = TraverseAndSaveNodes(roadmapData.Items, techPath.TechPathId, null, 1);
+
+                // Cập nhật lại tổng số node
+                techPath.TotalNodes = totalNodesAdded;
+                _contentRepo.UpdateTechPath(techPath);
+                _contentRepo.SaveChanges();
+
+                return (200, $"Đồng bộ thành công! Đã tạo nhánh {techPath.PathName} với {totalNodesAdded} module.");
+            }
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi hệ thống khi đồng bộ: {ex.Message}");
+            }
+        }
+
+        // Đổi thành hàm đồng bộ (sync) vì Repository pattern của bạn đang dùng SaveChanges() đồng bộ
+        private int TraverseAndSaveNodes(List<RoadmapNodeDto> nodes, int techPathId, int? parentNodeId, int priority)
+        {
+            if (nodes == null || !nodes.Any()) return 0;
+            int count = 0;
+
+            foreach (var item in nodes)
+            {
+                var skillNode = new SkillNode
+                {
+                    TechPathId = techPathId,
+                    NodeName = item.Name ?? "Unnamed Node",
+                    Description = item.Description ?? "Đang cập nhật tài liệu",
+                    ParentNodeId = parentNodeId,
+                    PriorityLevel = priority,
+                    IsCodingRequired = false
+                };
+
+                _contentRepo.AddSkillNode(skillNode);
+                _contentRepo.SaveChanges(); // Cần Save ngay để EF Core cấp Identity ID cho ParentNodeId đời sau
+                count++;
+
+                // Nếu có node con, đệ quy gọi lại và truyền ID của node hiện tại làm Parent
+                if (item.Children != null && item.Children.Any())
+                {
+                    count += TraverseAndSaveNodes(item.Children, techPathId, skillNode.SkillNodeId, priority + 1);
+                }
+            }
+            return count;
         }
         #endregion
     }

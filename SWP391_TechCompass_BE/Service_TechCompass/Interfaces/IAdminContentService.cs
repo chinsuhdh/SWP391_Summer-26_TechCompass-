@@ -24,5 +24,8 @@ namespace Service_TechCompass.Interfaces
         Task<(int StatusCode, string Message)> CreateLearningResourceAsync(CreateUpdateLearningResourceDto request);
         Task<(int StatusCode, string Message)> UpdateLearningResourceAsync(int id, CreateUpdateLearningResourceDto request);
         Task<(int StatusCode, string Message)> DeleteLearningResourceAsync(int id);
+
+
+        Task<(int StatusCode, string Message)> SyncRoadmapFromGitHubAsync(string rawUrl, int targetRoleId);
     }
 }
