@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
 using Octokit;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
@@ -17,13 +18,14 @@ namespace Service_TechCompass.Services
     {
         private readonly IPortfolioRepository _portfolioRepo;
         private readonly IConfiguration _config;
-        private readonly HttpClient _httpClient;
+        private readonly Kernel _kernel; // ĐÃ THAY ĐỔI: Sử dụng Kernel thay vì HttpClient
 
-        public PortfolioService(IPortfolioRepository portfolioRepo, IConfiguration config, HttpClient httpClient)
+        // ĐÃ THAY ĐỔI: Inject Kernel vào Constructor
+        public PortfolioService(IPortfolioRepository portfolioRepo, IConfiguration config, Kernel kernel)
         {
             _portfolioRepo = portfolioRepo;
             _config = config;
-            _httpClient = httpClient;
+            _kernel = kernel;
         }
 
         // Task 44: Xem E-Portfolio
@@ -78,7 +80,7 @@ namespace Service_TechCompass.Services
                 // Khởi tạo Client
                 var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
 
-                // ĐÃ FIX: Nhúng Personal Access Token vào để xé rào Rate Limit lên 5000 req/giờ
+                // Nhúng Personal Access Token vào để xé rào Rate Limit lên 5000 req/giờ
                 var githubToken = _config["GithubConfig:PersonalAccessToken"];
                 if (!string.IsNullOrEmpty(githubToken))
                 {
@@ -91,7 +93,8 @@ namespace Service_TechCompass.Services
                 int syncCount = 0;
                 foreach (var repo in repos)
                 {
-                    if (repo.Fork) continue; // Bỏ qua các repo fork
+                    // LỌC RÁC TẠI ĐÂY: Bỏ qua repo fork, repo trống rỗng hoặc bị archived
+                    if (repo.Fork || repo.Size == 0 || repo.Archived) continue;
 
                     string readmeContent = string.Empty;
                     try
@@ -100,7 +103,17 @@ namespace Service_TechCompass.Services
                         var readme = await github.Repository.Content.GetReadme(repo.Id);
                         readmeContent = readme.Content;
                     }
-                    catch (NotFoundException) { /* Bỏ qua nếu repo không có README */ }
+                    catch (NotFoundException)
+                    {
+                        // Bỏ qua hẳn những repo không thèm viết README (không đáng cho vào Portfolio)
+                        continue;
+                    }
+
+                    // Tránh những repo có README quá ngắn (dưới 50 ký tự - thường là repo rỗng do auto-gen)
+                    if (string.IsNullOrWhiteSpace(readmeContent) || readmeContent.Length < 50)
+                    {
+                        continue;
+                    }
 
                     var githubRepo = new GithubRepository
                     {
@@ -116,9 +129,8 @@ namespace Service_TechCompass.Services
                     syncCount++;
                 }
 
-                return (200, $"Đồng bộ thành công {syncCount} repositories từ GitHub.");
+                return (200, $"Đồng bộ thành công {syncCount} dự án chất lượng từ GitHub.");
             }
-            // Thêm catch riêng cho lỗi Limit để Backend không bị sập
             catch (RateLimitExceededException)
             {
                 return (429, "Hệ thống đã đạt giới hạn lấy dữ liệu từ GitHub. Vui lòng kiểm tra lại cấu hình Personal Access Token hoặc thử lại sau 1 giờ.");
@@ -136,44 +148,38 @@ namespace Service_TechCompass.Services
             if (repo == null) return (404, "Không tìm thấy repository.");
             if (string.IsNullOrWhiteSpace(repo.ReadmeContent)) return (400, "Repository này không có file README.md để AI phân tích.");
 
-            string apiKey = _config["GeminiApiConfig:ApiKey"]!;
-            string baseUrl = _config["GeminiApiConfig:BaseUrl"]!;
-            string requestUrl = $"{baseUrl}?key={apiKey}";
-
+            // Chuẩn bị Lời nhắc (Prompt)
             string prompt = $@"Bạn là một chuyên gia tuyển dụng IT. Dưới đây là nội dung file README.md của một dự án:
 {repo.ReadmeContent}
 Hãy phân tích và trả về đúng định dạng sau (Không giải thích thêm):
 SUMMARY: [Viết tóm tắt ngắn gọn mục đích dự án trong 2-3 câu]
 TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử dụng, phân cách bằng dấu phẩy]";
 
-            var payload = new { contents = new[] { new { parts = new[] { new { text = prompt } } } } };
-
             try
             {
-                var response = await _httpClient.PostAsJsonAsync(requestUrl, payload);
-                if (response.IsSuccessStatusCode)
+                // ĐÃ THAY ĐỔI: Sử dụng sức mạnh của Semantic Kernel để gọi Chat AI
+                var chatService = _kernel.GetRequiredService<IChatCompletionService>();
+
+                // Gọi API Gemini 2.5 Flash ngầm định thông qua Kernel
+                var result = await chatService.GetChatMessageContentAsync(prompt);
+                string aiText = result.Content ?? "";
+
+                // Parse kết quả trả về
+                if (aiText.Contains("SUMMARY:") && aiText.Contains("TECHSTACK:"))
                 {
-                    var responseData = await response.Content.ReadAsStringAsync();
-                    var geminiResponse = JsonSerializer.Deserialize<GeminiResponseDto>(responseData, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    string aiText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
+                    var parts = aiText.Split(new[] { "TECHSTACK:" }, StringSplitOptions.None);
+                    repo.AiProjectSummary = parts[0].Replace("SUMMARY:", "").Trim();
+                    repo.ExtractedTechStack = parts.Length > 1 ? parts[1].Trim() : "";
 
-                    // Parse kết quả trả về
-                    if (aiText.Contains("SUMMARY:") && aiText.Contains("TECHSTACK:"))
-                    {
-                        var parts = aiText.Split(new[] { "TECHSTACK:" }, StringSplitOptions.None);
-                        repo.AiProjectSummary = parts[0].Replace("SUMMARY:", "").Trim();
-                        repo.ExtractedTechStack = parts.Length > 1 ? parts[1].Trim() : "";
-
-                        await _portfolioRepo.UpdateGithubRepoAsync(repo);
-                        return (200, "AI phân tích Repository thành công.");
-                    }
-                    return (500, "AI trả về sai định dạng mong muốn.");
+                    await _portfolioRepo.UpdateGithubRepoAsync(repo);
+                    return (200, "AI phân tích Repository thành công.");
                 }
-                return (500, "Lỗi kết nối tới AI Engine.");
+
+                return (500, "AI trả về sai định dạng mong muốn. Hãy thử phân tích lại.");
             }
             catch (Exception ex)
             {
-                return (500, $"Lỗi hệ thống: {ex.Message}");
+                return (500, $"Lỗi hệ thống khi gọi AI Semantic Kernel: {ex.Message}");
             }
         }
 
@@ -186,15 +192,18 @@ TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử d
                 AiProfileSummary = entity.AiProfileSummary,
                 ShareableUrl = entity.ShareableUrl,
                 CreatedAt = entity.CreatedAt,
-                Repositories = entity.GithubRepositories.Select(r => new GithubRepoDto
-                {
-                    RepoId = r.RepoId,
-                    RepoName = r.RepoName,
-                    GithubUrl = r.GithubUrl,
-                    ExtractedTechStack = r.ExtractedTechStack,
-                    AiProjectSummary = r.AiProjectSummary,
-                    SyncedAt = r.SyncedAt
-                }).ToList()
+
+                // ĐÃ FIX: Thêm kiểm tra Null cho danh sách GithubRepositories
+                Repositories = (entity.GithubRepositories ?? new List<GithubRepository>())
+                    .Select(r => new GithubRepoDto
+                    {
+                        RepoId = r.RepoId,
+                        RepoName = r.RepoName,
+                        GithubUrl = r.GithubUrl,
+                        ExtractedTechStack = r.ExtractedTechStack,
+                        AiProjectSummary = r.AiProjectSummary,
+                        SyncedAt = r.SyncedAt
+                    }).ToList()
             };
         }
     }

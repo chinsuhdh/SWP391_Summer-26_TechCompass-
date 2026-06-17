@@ -73,12 +73,12 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminContentService, AdminContentService>();
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
-
+            builder.Services.AddScoped<IPortfolioService, PortfolioService>();
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
             // Đã xóa các dòng AddScoped thừa để tránh ghi đè lỗi DI
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddHttpClient<ICareerService, CareerService>();
-            builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
+            //builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
             builder.Services.AddHttpClient<IMarketPulseService, MarketPulseService>();
 
             // 6. CÁC DỊCH VỤ NỀN & SIGNALR
