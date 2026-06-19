@@ -216,5 +216,35 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = ex.Message });
             }
         }
+
+        // Thêm 2 API này vào trong AssessmentsController
+
+        [HttpGet("quiz/role/{roleId}")]
+        public async Task<IActionResult> GetRoleQuiz(int roleId)
+        {
+            try
+            {
+                var quiz = await _assessmentService.GetComprehensiveQuizByRoleAsync(roleId);
+                return Ok(new { Message = "Lấy đề đánh giá nghề nghiệp thành công", Data = quiz });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
+
+        [HttpPost("generate-exercise/role/{roleId}")]
+        public async Task<IActionResult> GenerateRoleExercise(int roleId)
+        {
+            try
+            {
+                var exercise = await _assessmentService.GetComprehensiveCodingExerciseByRoleAsync(roleId);
+                return Ok(new { Message = "Lấy đề bài code thành công", Data = exercise });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
+        }
     }
 }

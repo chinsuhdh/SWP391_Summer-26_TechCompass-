@@ -160,5 +160,17 @@ namespace Repository_TechCompass.Repositories
                 .OrderByDescending(a => a.TakenAt)
                 .ToListAsync();
         }
+
+        // Thêm hàm này vào trong class AssessmentRepository
+        public async Task<List<SkillNode>> GetSkillNodesByRoleIdAsync(int roleId)
+        {
+            var techPath = await _context.TechPaths.FirstOrDefaultAsync(tp => tp.TargetRoleId == roleId);
+            if (techPath == null) return new List<SkillNode>();
+
+            return await _context.SkillNodes
+                .Where(sn => sn.TechPathId == techPath.TechPathId)
+                .OrderBy(sn => sn.PriorityLevel)
+                .ToListAsync();
+        }
     }
 }

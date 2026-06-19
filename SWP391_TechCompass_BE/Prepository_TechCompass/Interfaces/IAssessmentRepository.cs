@@ -25,5 +25,7 @@ namespace Repository_TechCompass.Interfaces
         Task<CodingExercise?> GetCodingExerciseByNodeAsync(int skillNodeId);
 
         Task<AssessmentSession> SaveAssessmentSessionAsync(AssessmentSession session);
+
+        Task<List<SkillNode>> GetSkillNodesByRoleIdAsync(int roleId);
     }
 }

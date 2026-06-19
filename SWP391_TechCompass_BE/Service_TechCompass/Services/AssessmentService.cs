@@ -20,8 +20,11 @@ namespace Service_TechCompass.Services
         private readonly IAssessmentRepository _repository;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
-        private readonly IChatCompletionService _chatCompletionService;
         private readonly IQuizSyncService _quizSyncService;
+
+        // Khai báo 2 biến để hứng 2 service khác nhau từ Kernel
+        private readonly IChatCompletionService _geminiService;
+        private readonly IChatCompletionService _openAiAnalyzer;
 
         public AssessmentService(
             IAssessmentRepository repository,
@@ -33,28 +36,99 @@ namespace Service_TechCompass.Services
             _repository = repository;
             _httpClient = httpClient;
             _configuration = configuration;
-            _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
             _quizSyncService = quizSyncService;
+
+            // Kéo song song 2 Model từ Kernel DI thông qua ServiceId
+            _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            _openAiAnalyzer = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
         }
 
+        // ==========================================
+        // 1. TẠO CÂU HỎI LÝ THUYẾT (TRẮC NGHIỆM) BẰNG AI
+        // ==========================================
         public async Task<List<QuizQuestionDto>> GetQuizBySkillNodeAsync(int skillNodeId)
         {
             var realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
 
-            if (realQuestions == null || realQuestions.Count == 0)
+            // Nếu DB chưa có câu hỏi nào (hoặc ít hơn 5 câu), dùng Gemini AI để tự động sinh đề mới
+            if (realQuestions == null || realQuestions.Count < 5)
             {
                 var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
                 if (node != null)
                 {
                     try
                     {
-                        string keyword = node.NodeName.Split(' ')[0];
-                        await _quizSyncService.FetchAndSaveQuestionsAsync(skillNodeId, keyword, 10);
-                        realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
+                        var chatHistory = new ChatHistory();
+                        chatHistory.AddSystemMessage("You are a strict automated JSON array generator. Do not include markdown codeblocks like ```json.");
+
+                        string prompt = $@"Bạn là một chuyên gia đào tạo IT cao cấp.
+Hãy tạo 10 câu hỏi trắc nghiệm (Multiple Choice) bằng tiếng Việt để kiểm tra kỹ năng '{node.NodeName}'.
+YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT mảng JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
+Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
+[
+    {{
+        ""QuestionText"": ""Nội dung câu hỏi lý thuyết sâu sắc về {node.NodeName}?"",
+        ""OptionA"": ""Nội dung đáp án A"",
+        ""OptionB"": ""Nội dung đáp án B"",
+        ""OptionC"": ""Nội dung đáp án C"",
+        ""OptionD"": ""Nội dung đáp án D"",
+        ""CorrectAnswer"": ""A"", 
+        ""Explanation"": ""Giải thích ngắn gọn tại sao đáp án này đúng."",
+        ""DifficultyLevel"": ""Medium""
+    }}
+]";
+                        chatHistory.AddUserMessage(prompt);
+
+                        // DÙNG GEMINI ĐỂ SINH MẢNG JSON CÂU HỎI TRẮC NGHIỆM
+                        var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
+                        string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề lý thuyết.");
+
+                        int startIndex = aiRawText.IndexOf('[');
+                        int endIndex = aiRawText.LastIndexOf(']');
+
+                        if (startIndex >= 0 && endIndex >= startIndex)
+                        {
+                            aiRawText = aiRawText.Substring(startIndex, endIndex - startIndex + 1);
+                        }
+                        else
+                        {
+                            throw new Exception($"AI không trả về JSON Array hợp lệ. Data AI gửi về: {aiRawText}");
+                        }
+
+                        // Parse kết quả AI thành List các model DB
+                        var generatedQuestions = JsonSerializer.Deserialize<List<AssessmentQuestion>>(
+                            aiRawText,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                        );
+
+                        if (generatedQuestions != null && generatedQuestions.Count > 0)
+                        {
+                            foreach (var q in generatedQuestions)
+                            {
+                                q.SkillNodeId = skillNodeId;
+                                // Chuẩn hóa CorrectAnswer (Đề phòng AI sinh thừa chữ như "A." thay vì "A")
+                                q.CorrectAnswer = q.CorrectAnswer?.Trim().ToUpper();
+                                if (q.CorrectAnswer?.Length > 1) q.CorrectAnswer = q.CorrectAnswer.Substring(0, 1);
+                            }
+
+                            // Lưu trực tiếp toàn bộ câu hỏi do AI tạo vào Database
+                            await _repository.SaveQuestionsAsync(generatedQuestions);
+
+                            // Load lại câu hỏi vừa lưu
+                            realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[Tự động tạo Quiz thất bại]: {ex.Message}");
+                        Console.WriteLine($"[Tự động tạo Quiz bằng AI thất bại]: {ex.Message}");
+                        // Fallback an toàn: Nếu AI lỗi (do hết quota hoặc timeout), chạy lại API quizapi.io cũ
+                        try
+                        {
+                            string keyword = node.NodeName.Split(' ')[0];
+                            await _quizSyncService.FetchAndSaveQuestionsAsync(skillNodeId, keyword, 10);
+                            realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
+                        }
+                        catch { }
                     }
                 }
             }
@@ -99,17 +173,45 @@ namespace Service_TechCompass.Services
             var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
             if (node == null) throw new Exception("Không tìm thấy kỹ năng này trong Database.");
 
+            // LOGIC MỚI: PHÂN TÍCH NGÔN NGỮ LẬP TRÌNH DỰA THEO TÊN KỸ NĂNG (NODE NAME)
+            string targetLanguage = "C#"; // Mặc định là C#
+            string defaultTemplate = "using System;\\n\\npublic class Solution {\\n    public static void Main() {\\n        // Viết code của bạn tại đây\\n    }\\n}";
+
+            string lowerNodeName = node.NodeName.ToLower();
+
+            if (lowerNodeName.Contains("html") || lowerNodeName.Contains("css") || lowerNodeName.Contains("javascript") || lowerNodeName.Contains("dom"))
+            {
+                targetLanguage = "JavaScript (Node.js)";
+                defaultTemplate = "// Viết mã JavaScript của bạn dưới đây để giải quyết bài toán\\n// Hàm console.log() sẽ in kết quả ra màn hình\\n\\nfunction solve() {\\n\\n}\\n\\nsolve();";
+            }
+            else if (lowerNodeName.Contains("react") || lowerNodeName.Contains("hooks"))
+            {
+                targetLanguage = "JavaScript (React Component Logic)";
+                defaultTemplate = "// Viết mã logic JavaScript/React của bạn dưới đây\\n\\nconst App = () => {\\n    // ...\\n};";
+            }
+            else if (lowerNodeName.Contains("python") || lowerNodeName.Contains("data"))
+            {
+                targetLanguage = "Python";
+                defaultTemplate = "def solve():\\n    # Viết mã Python của bạn tại đây\\n    pass\\n\\nif __name__ == '__main__':\\n    solve()";
+            }
+            else if (lowerNodeName.Contains("java") && !lowerNodeName.Contains("javascript"))
+            {
+                targetLanguage = "Java";
+                defaultTemplate = "import java.util.*;\\n\\npublic class Solution {\\n    public static void main(String[] args) {\\n        // Viết mã Java của bạn tại đây\\n    }\\n}";
+            }
+
             var chatHistory = new ChatHistory();
             chatHistory.AddSystemMessage("You are a strict automated JSON generator. Do not include markdown codeblocks like ```json.");
 
+            // CẬP NHẬT PROMPT ĐỂ TRUYỀN NGÔN NGỮ ĐÍCH VÀO
             string prompt = $@"Bạn là một chuyên gia tạo đề thi lập trình (Problem Setter) trên HackerRank.
-Hãy tạo 1 bài tập lập trình cơ bản bằng ngôn ngữ C# để kiểm tra kỹ năng '{node.NodeName}'.
+Hãy tạo 1 bài tập lập trình cơ bản bằng ngôn ngữ '{targetLanguage}' để kiểm tra kỹ năng '{node.NodeName}'.
 YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT chuỗi JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
 Cấu trúc JSON bắt buộc phải giống hệt như sau:
 {{
     ""Title"": ""Tên bài tập ngắn gọn"",
     ""ProblemDescription"": ""Mô tả yêu cầu bài toán chi tiết, rõ ràng."",
-    ""DefaultCodeTemplate"": ""using System;\n\npublic class Solution {{\n    public static void Main() {{\n        // Viết code của bạn tại đây\n    }}\n}}"",
+    ""DefaultCodeTemplate"": ""{defaultTemplate}"",
     ""TestStdin"": ""Dữ liệu đầu vào giả lập nhập từ Console. Nếu bài không yêu cầu nhập, hãy để rỗng."",
     ""ExpectedOutput"": ""Kết quả in ra màn hình Console mong đợi để máy chấm tự động so sánh."",
     ""DifficultyLevel"": ""Easy""
@@ -118,7 +220,8 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
 
             try
             {
-                var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
+                // Gọi API Gemini
+                var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                 string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề bài.");
 
                 int startIndex = aiRawText.IndexOf('{');
@@ -159,9 +262,8 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
         }
 
         // ==========================================
-        // LUỒNG XỬ LÝ CHÍNH ĐÃ ĐỒNG BỘ THEO SESSION (MASTER-DETAIL)
+        // 3. LUỒNG XỬ LÝ CHÍNH THEO SESSION
         // ==========================================
-
         public async Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission)
         {
             var session = new AssessmentSession
@@ -196,7 +298,7 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
             }
             session.TotalQuizScore = dbQuestions.Count > 0 ? (decimal)correctCount / dbQuestions.Count * 10 : 0;
 
-            // 2. Chấm điểm Code & Phân tích bằng Gemini AI
+            // 2. Chấm điểm Code & Phân tích bằng OpenAI
             decimal executionScore = 0.0m;
             string codeExecutionFeedback = string.Empty;
             string aiFeedback = "Không thể kết nối đến AI Engine.";
@@ -205,7 +307,7 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
             {
                 string clientId = _configuration["JDoodleConfig:ClientId"];
                 string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
-                string apiUrl = "[https://api.jdoodle.com/v1/execute](https://api.jdoodle.com/v1/execute)";
+                string apiUrl = "https://api.jdoodle.com/v1/execute";
 
                 string jLanguage = submission.CodeSubmission.Language.ToLower() switch
                 {
@@ -288,10 +390,27 @@ Chỉ trả về nội dung nhận xét.";
 
                 try
                 {
-                    var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
-                    aiFeedback = response.ToString() ?? aiFeedback;
+                    // ƯU TIÊN 1: DÙNG OPENAI ĐỂ ĐẢM BẢO KHẢ NĂNG ĐỌC HIỂU LOGIC VÀ THUẬT TOÁN
+                    var response = await _openAiAnalyzer.GetChatMessageContentAsync(chatHistory);
+                    aiFeedback = response.ToString();
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"\n[LỖI OPENAI CODE REVIEW]: {ex.Message}");
+
+                    try
+                    {
+                        Console.WriteLine("=> Đang chuyển hướng (Fallback) sang dùng Gemini để chấm bài...");
+                        // ƯU TIÊN 2: NẾU OPENAI HẾT QUOTA / LỖI MẠNG -> CHUYỂN SANG GEMINI
+                        var fallbackResponse = await _geminiService.GetChatMessageContentAsync(chatHistory);
+                        aiFeedback = fallbackResponse.ToString();
+                    }
+                    catch (Exception geminiEx)
+                    {
+                        Console.WriteLine($"[LỖI GEMINI CODE REVIEW]: {geminiEx.Message}\n");
+                        aiFeedback = $"Hệ thống AI đang bảo trì. Chi tiết lỗi OpenAI: {ex.Message}";
+                    }
+                }
 
                 session.CodeDetail = new AssessmentCodeDetail
                 {
@@ -317,7 +436,7 @@ Chỉ trả về nội dung nhận xét.";
                 skillNodeId = session.SkillNodeId,
                 nodeName = session.SkillNode?.NodeName,
                 testScore = session.TotalQuizScore + session.TotalCodeScore,
-                aiFeedback = session.CodeDetail?.AiFeedback, // Kéo AI Feedback từ thực thể kết nối mới
+                aiFeedback = session.CodeDetail?.AiFeedback,
                 submittedCode = session.CodeDetail?.SourceCode,
                 takenAt = session.TakenAt
             };
@@ -355,7 +474,7 @@ Chỉ trả về nội dung nhận xét.";
                 codeDetail = session.CodeDetail == null ? null : new
                 {
                     sourceCode = session.CodeDetail.SourceCode,
-                    aiFeedback = session.CodeDetail.AiFeedback // Trả ra cấu trúc JSON bọc gọn gàng cho Frontend map đúng tab
+                    aiFeedback = session.CodeDetail.AiFeedback
                 },
                 quizDetails = session.QuizDetails.Select(q => new
                 {
@@ -368,10 +487,6 @@ Chỉ trả về nội dung nhận xét.";
             };
         }
 
-
-        // ==========================================
-        // CÁC HÀM KHAI BÁO THỪA KẾ CŨ (LEGACY FLOW)
-        // ==========================================
         public async Task<SkillAssessment> GradeAndSaveQuizAsync(QuizSubmissionDto submission) => throw new NotImplementedException("Hàm cũ không sử dụng.");
         public async Task<SkillAssessment> GradeAndSaveCodeTestAsync(CodeTestSubmissionDto submission) => throw new NotImplementedException("Hàm cũ không sử dụng.");
         public async Task<AssessmentFeedbackDto> GetAssessmentFeedbackAsync(Guid assessmentId) => throw new NotImplementedException("Hàm cũ không sử dụng.");
@@ -384,6 +499,127 @@ Chỉ trả về nội dung nhận xét.";
             public string TestStdin { get; set; } = string.Empty;
             public string ExpectedOutput { get; set; } = string.Empty;
             public string DifficultyLevel { get; set; } = string.Empty;
+        }
+
+        // ==========================================
+        // LUỒNG ĐÁNH GIÁ TOÀN DIỆN THEO NGHỀ NGHIỆP (ROLE-BASED)
+        // ==========================================
+
+        public async Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId)
+        {
+            var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
+            if (nodes == null || !nodes.Any())
+                throw new Exception("Chưa có kỹ năng nào được cấu hình cho ngành nghề này trong Database.");
+
+            var finalQuestions = new List<AssessmentQuestion>();
+
+            // Tính toán số lượng câu hỏi cần lấy cho mỗi kỹ năng để trải đều (Ví dụ: 10 câu / 5 kỹ năng = 2 câu/kỹ năng)
+            int questionsPerNode = (int)Math.Ceiling(10.0 / nodes.Count);
+
+            foreach (var node in nodes)
+            {
+                var dbQuestions = await _repository.GetQuestionsBySkillNodeAsync(node.SkillNodeId, 10);
+
+                // NẾU KỸ NĂNG NÀY TRONG DB CHƯA CÓ ĐỦ CÂU HỎI -> GỌI AI TẠO VÀ LƯU XUỐNG DB
+                if (dbQuestions == null || dbQuestions.Count < questionsPerNode)
+                {
+                    dbQuestions = await GenerateAndSaveQuestionsForNodeAsync(node.SkillNodeId, node.NodeName, 5);
+                }
+
+                if (dbQuestions != null && dbQuestions.Any())
+                {
+                    // Bốc ngẫu nhiên số lượng câu hỏi đã chia đều
+                    finalQuestions.AddRange(dbQuestions.OrderBy(x => Guid.NewGuid()).Take(questionsPerNode));
+                }
+
+                if (finalQuestions.Count >= 10) break; // Dừng lại khi đã gom đủ 10 câu
+            }
+
+            // Shuffle toàn bộ đề thi lần cuối
+            finalQuestions = finalQuestions.OrderBy(x => Guid.NewGuid()).Take(10).ToList();
+
+            return finalQuestions.Select(q => new QuizQuestionDto
+            {
+                QuestionId = q.QuestionId,
+                QuestionText = q.QuestionText,
+                Options = new Dictionary<string, string>
+        {
+            { "A", q.OptionA ?? "True" },
+            { "B", q.OptionB ?? "False" },
+            { "C", q.OptionC ?? "" },
+            { "D", q.OptionD ?? "" }
+        }.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
+            }).ToList();
+        }
+
+        public async Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId)
+        {
+            var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
+            if (nodes == null || !nodes.Any()) throw new Exception("Chưa có kỹ năng nào được cấu hình.");
+
+            // Chọn node quan trọng nhất có yêu cầu Code (IsCodingRequired) để kiểm tra thực hành
+            var targetNode = nodes.FirstOrDefault(n => n.IsCodingRequired == true) ?? nodes.First();
+
+            return await GetOrGenerateCodingExerciseAsync(targetNode.SkillNodeId);
+        }
+
+        // HÀM HELPER: GỌI GEMINI AI TẠO CÂU HỎI VÀ LƯU VÀO DATABASE
+        private async Task<List<AssessmentQuestion>> GenerateAndSaveQuestionsForNodeAsync(int skillNodeId, string nodeName, int count)
+        {
+            try
+            {
+                var chatHistory = new ChatHistory();
+                chatHistory.AddSystemMessage("You are a strict automated JSON array generator. Do not include markdown codeblocks like ```json.");
+
+                string prompt = $@"Bạn là một chuyên gia đào tạo IT cao cấp.
+Hãy tạo {count} câu hỏi trắc nghiệm (Multiple Choice) bằng tiếng Việt để kiểm tra tư duy logic về kỹ năng '{nodeName}'.
+YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT mảng JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
+Cấu trúc JSON bắt buộc:
+[
+    {{
+        ""QuestionText"": ""Nội dung câu hỏi sâu sắc về {nodeName}?"",
+        ""OptionA"": ""Nội dung A"",
+        ""OptionB"": ""Nội dung B"",
+        ""OptionC"": ""Nội dung C"",
+        ""OptionD"": ""Nội dung D"",
+        ""CorrectAnswer"": ""A"", 
+        ""Explanation"": ""Giải thích ngắn gọn."",
+        ""DifficultyLevel"": ""Medium""
+    }}
+]";
+                chatHistory.AddUserMessage(prompt);
+                var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
+                string aiRawText = response.ToString();
+
+                int startIndex = aiRawText.IndexOf('[');
+                int endIndex = aiRawText.LastIndexOf(']');
+                if (startIndex >= 0 && endIndex >= startIndex)
+                {
+                    aiRawText = aiRawText.Substring(startIndex, endIndex - startIndex + 1);
+                }
+
+                var generatedQuestions = JsonSerializer.Deserialize<List<AssessmentQuestion>>(
+                    aiRawText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                if (generatedQuestions != null && generatedQuestions.Count > 0)
+                {
+                    foreach (var q in generatedQuestions)
+                    {
+                        q.SkillNodeId = skillNodeId;
+                        q.CorrectAnswer = q.CorrectAnswer?.Trim().ToUpper();
+                        if (q.CorrectAnswer?.Length > 1) q.CorrectAnswer = q.CorrectAnswer.Substring(0, 1);
+                    }
+
+                    await _repository.SaveQuestionsAsync(generatedQuestions);
+                    return generatedQuestions;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tự động tạo Quiz bằng AI thất bại cho Node {nodeName}]: {ex.Message}");
+            }
+            return new List<AssessmentQuestion>();
         }
     }
 }

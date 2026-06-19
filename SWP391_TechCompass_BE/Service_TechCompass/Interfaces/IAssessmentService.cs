@@ -24,5 +24,9 @@ namespace Service_TechCompass.Interfaces
         Task<object?> GetAssessmentDetailByIdAsync(Guid assessmentId);
 
         Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission);
+
+        // Thêm 2 hàm này vào interface
+        Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId);
+        Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId);
     }
 }

@@ -7,7 +7,6 @@ using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-// THÊM THƯ VIỆN SEMANTIC KERNEL ĐỂ GỌI AI
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -17,16 +16,17 @@ namespace Service_TechCompass.Services
     {
         private readonly IUserRepository _userRepo;
         private readonly Swp391CareerRoadmapContext _context;
-        private readonly IChatCompletionService _chatCompletionService; // BỔ SUNG GEMINI
+        private readonly IChatCompletionService _aiRoadmapAnalyzer;
 
         public RoadmapEngineService(
             IUserRepository userRepo,
             Swp391CareerRoadmapContext context,
-            Kernel kernel) // INJECT KERNEL
+            Kernel kernel)
         {
             _userRepo = userRepo;
             _context = context;
-            _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            // Inject OpenAI để xử lý phân tích logic mảng lộ trình và Map Market Pulse
+            _aiRoadmapAnalyzer = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
         }
 
         public async Task<(int StatusCode, string Message, GenerateRoadmapResponseDto? Data)> GenerateRoadmapAsync(Guid userId)
@@ -220,12 +220,12 @@ namespace Service_TechCompass.Services
                 await _context.SaveChangesAsync();
             }
 
-            // 5. GỌI GEMINI AI ĐỂ PHÂN TÍCH VÀ ĐƯA RA LỜI KHUYÊN
+            // 5. GỌI OPENAI ĐỂ PHÂN TÍCH VÀ ĐƯA RA LỜI KHUYÊN DỰA TRÊN NGHIỆP VỤ & LOGIC THỊ TRƯỜNG
             string aiAdvice = $"Đã kích hoạt Lộ trình {techPath.PathName}.";
             try
             {
                 var chatHistory = new ChatHistory();
-                chatHistory.AddSystemMessage("Bạn là chuyên gia Mentor IT, cố vấn lộ trình học tập theo chuẩn roadmap.sh. Hãy trả lời cực kỳ ngắn gọn dưới 80 chữ.");
+                chatHistory.AddSystemMessage("Bạn là chuyên gia Mentor IT, cố vấn lộ trình học tập theo chuẩn roadmap.sh và đánh giá xu hướng thị trường. Hãy trả lời cực kỳ ngắn gọn dưới 80 chữ.");
 
                 string prompt = $@"Sinh viên vừa kiểm tra kỹ năng '{session.SkillNode.NodeName}' đạt {totalScore}/20 điểm.
                  Lộ trình đích: '{techPath.PathName}' (Vị trí {role.RoleName}, nhu cầu thị trường đang rất hot: {role.MarketDemandIndex}/10).
@@ -235,12 +235,13 @@ namespace Service_TechCompass.Services
                  Bắt buộc chèn keywords 'roadmap.sh' vào câu trả lời.";
 
                 chatHistory.AddUserMessage(prompt);
-                var aiResponse = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
+
+                // Gọi model OpenAI
+                var aiResponse = await _aiRoadmapAnalyzer.GetChatMessageContentAsync(chatHistory);
                 aiAdvice = aiResponse.ToString();
             }
             catch
             {
-                // Fallback nếu API Google Gemini bị nghẽn
                 aiAdvice = $"Dựa trên điểm số {totalScore}/20, hệ thống đã nạp chuẩn roadmap.sh và tạo thành công {addedCount} module kỹ năng cho vị trí {role.RoleName}. Hãy theo sát cây lộ trình để lấp đầy lỗ hổng nhé!";
             }
 

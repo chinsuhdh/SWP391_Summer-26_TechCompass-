@@ -38,23 +38,39 @@ namespace API_TechCompass
             builder.Services.AddScoped<IMarketPulseRepository, MarketPulseRepository>();
 
             // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
-            var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
-            var apiKey = geminiConfig["ApiKey"];
-            var modelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
 
-            if (string.IsNullOrEmpty(apiKey))
+            // Lấy config Gemini
+            var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
+            var geminiApiKey = geminiConfig["ApiKey"];
+            var geminiModelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
+
+            // Lấy config OpenAI
+            var openAiConfig = builder.Configuration.GetSection("OpenAiApiConfig");
+            var openAiApiKey = openAiConfig["ApiKey"];
+            var openAiModelId = openAiConfig["ModelId"] ?? "gpt-4o-mini";
+
+            // Validate Key
+            if (string.IsNullOrEmpty(geminiApiKey) || string.IsNullOrEmpty(openAiApiKey))
             {
-                throw new InvalidOperationException("[LỖI CẤU HÌNH NGHIÊM TRỌNG]: API Key của Gemini bị rỗng!");
+                throw new InvalidOperationException("[LỖI CẤU HÌNH NGHIÊM TRỌNG]: API Key của Gemini hoặc OpenAI bị rỗng trong appsettings.json!");
             }
 
-            var kernelBuilder = Kernel.CreateBuilder()
-                .AddGoogleAIGeminiChatCompletion(
-                    modelId: modelId,
-                    apiKey: apiKey,
-                    serviceId: "GeminiChat"
-                );
-
-            builder.Services.AddTransient<Kernel>(sp => kernelBuilder.Build());
+            // Đưa khởi tạo Builder vào BÊN TRONG AddTransient để đảm bảo Thread-Safe cho mỗi Request
+            builder.Services.AddTransient<Kernel>(sp =>
+            {
+                return Kernel.CreateBuilder()
+                    // Dành cho Chatbot, Survey, Sinh Roadmap (Tốc độ nhanh, chi phí rẻ)
+                    .AddGoogleAIGeminiChatCompletion(
+                        modelId: geminiModelId,
+                        apiKey: geminiApiKey,
+                        serviceId: "GeminiChat")
+                    // Dành cho Code Review, Pattern Analysis (Đòi hỏi logic sâu)
+                    .AddOpenAIChatCompletion(
+                        modelId: openAiModelId,
+                        apiKey: openAiApiKey,
+                        serviceId: "OpenAiCodeAnalyzer")
+                    .Build();
+            });
 
             // 4. ĐĂNG KÝ SERVICE
             builder.Services.AddScoped<IAuthService, AuthService>();
@@ -74,11 +90,10 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
+
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
-            // Đã xóa các dòng AddScoped thừa để tránh ghi đè lỗi DI
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddHttpClient<ICareerService, CareerService>();
-            //builder.Services.AddHttpClient<IPortfolioService, PortfolioService>();
             builder.Services.AddHttpClient<IMarketPulseService, MarketPulseService>();
 
             // 6. CÁC DỊCH VỤ NỀN & SIGNALR

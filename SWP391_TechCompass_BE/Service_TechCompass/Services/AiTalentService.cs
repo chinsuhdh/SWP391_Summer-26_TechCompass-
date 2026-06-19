@@ -9,17 +9,15 @@ namespace Service_TechCompass.Services
     public class AiTalentService : IAiTalentService
     {
         private readonly IStudentRepository _studentRepository;
-        private readonly IChatCompletionService _chatCompletionService;
+        private readonly IChatCompletionService _codeAnalyzerService; // Sử dụng OpenAI
 
-        // Bỏ HttpClient đi, thay bằng Kernel
         public AiTalentService(IStudentRepository studentRepository, Kernel kernel)
         {
             _studentRepository = studentRepository;
-            // Kéo service chat Gemini mà chúng ta đã gán ID trong Program.cs ra
-            _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            // Gọi đúng ServiceId đã đăng ký trong Program.cs
+            _codeAnalyzerService = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
         }
 
-        // Chức năng 27: AI Engine - Sinh latent talent
         public async Task<TalentAnalysisDto> GenerateLatentTalentAsync(Guid studentId)
         {
             var student = await _studentRepository.GetStudentWithAssessmentsAsync(studentId);
@@ -40,30 +38,25 @@ namespace Service_TechCompass.Services
             {
                 string patterns = string.Join("\n- ", codingPatterns);
 
-                // Khởi tạo ChatHistory cho Semantic Kernel
                 var chatHistory = new ChatHistory();
+                // System prompt cho OpenAI cần chi tiết và khắt khe hơn
+                chatHistory.AddSystemMessage("Bạn là một Senior Software Architect. Nhiệm vụ của bạn là đọc các coding patterns này và xác định thiên hướng (Latent Talent) của sinh viên (VD: System Design, Database Optimization, UI/UX). Trả lời ngắn gọn, trực diện, đi thẳng vào vấn đề kỹ thuật.");
 
-                // Set System Prompt để AI đóng vai trò chuyên gia đánh giá
-                chatHistory.AddSystemMessage("Bạn là một chuyên gia đánh giá năng lực Software Engineering. Hãy phân tích ngắn gọn, trực diện, đi thẳng vào vấn đề kỹ thuật.");
-
-                // User Prompt
-                string prompt = $"Dựa vào các lịch sử làm bài và pattern code sau của sinh viên phần mềm, hãy phân tích ngắn gọn (khoảng 3-4 câu) về tài năng tiềm ẩn, tư duy logic và định hướng vai trò phù hợp nhất (VD: System Design, Backend, UI/UX, DevOps...):\n- {patterns}";
+                string prompt = $"Dựa vào các lịch sử làm bài và pattern code sau của sinh viên phần mềm, hãy phân tích ngắn gọn (khoảng 3-4 câu) về tài năng tiềm ẩn, tư duy logic và định hướng vai trò phù hợp nhất:\n- {patterns}";
                 chatHistory.AddUserMessage(prompt);
 
                 try
                 {
-                    // Gọi Gemini qua Semantic Kernel
-                    var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
+                    // Thực thi với GPT-4o-mini
+                    var response = await _codeAnalyzerService.GetChatMessageContentAsync(chatHistory);
                     aiGeneratedTalent = response.ToString() ?? "Không thể phân tích dữ liệu lúc này, vui lòng thử lại sau.";
                 }
                 catch (Exception ex)
                 {
-                    // Catch lỗi nếu API tạch hoặc hết quota
                     aiGeneratedTalent = $"Lỗi khi kết nối với AI Engine: {ex.Message}";
                 }
             }
 
-            // 3. Cập nhật vào Database
             student.LatentTalentSummary = aiGeneratedTalent;
             await _studentRepository.UpdateStudentAsync(student);
 
@@ -74,7 +67,6 @@ namespace Service_TechCompass.Services
             };
         }
 
-        // Chức năng 28: Sinh viên - Xem AI talent analysis
         public async Task<TalentAnalysisDto> GetTalentAnalysisAsync(Guid studentId)
         {
             var student = await _studentRepository.GetStudentByIdAsync(studentId);

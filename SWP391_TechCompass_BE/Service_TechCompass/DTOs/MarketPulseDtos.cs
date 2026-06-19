@@ -10,6 +10,12 @@ namespace Service_TechCompass.DTOs
         public string? SourcePlatform { get; set; } // "LinkedIn", "TopCV"
         public int Page { get; set; } = 1;
         public int PageSize { get; set; } = 10;
+
+        // BỔ SUNG 2 TRƯỜNG NÀY ĐỂ FIX LỖI:
+        public decimal MinMatch { get; set; } = 0; // Để lọc số % match tối thiểu
+        public string? SortBy { get; set; } // "match" hoặc "date" để sắp xếp
+
+        public List<string> Skills { get; set; } = new();
     }
 
     public class JobMatchDto
