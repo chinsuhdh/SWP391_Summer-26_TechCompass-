@@ -27,5 +27,7 @@ namespace Repository_TechCompass.Interfaces
         Task<AssessmentSession> SaveAssessmentSessionAsync(AssessmentSession session);
 
         Task<List<SkillNode>> GetSkillNodesByRoleIdAsync(int roleId);
+
+        Task<bool> DeleteAssessmentSessionAsync(Guid sessionId);
     }
 }

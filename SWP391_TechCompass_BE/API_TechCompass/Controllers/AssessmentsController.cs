@@ -246,5 +246,30 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = ex.Message });
             }
         }
+
+        // POST: api/assessments/self-declare
+        [HttpPost("self-declare")]
+        public async Task<IActionResult> SelfDeclareSkills([FromBody] SelfDeclareSkillDto request)
+        {
+            if (request == null || request.StudentId == Guid.Empty || request.AcquiredSkillNodeIds == null)
+            {
+                return BadRequest(new { Error = "Dữ liệu khai báo không hợp lệ." });
+            }
+
+            try
+            {
+                // Gọi Service để lưu các kỹ năng user tự khai báo vào bảng StudentSkills hoặc AssessmentSessions với trạng thái 'Self-Declared'
+                await _assessmentService.SaveSelfDeclaredSkillsAsync(request.StudentId, request.AcquiredSkillNodeIds);
+
+                // Kích hoạt lại Roadmap Engine để tính toán lại lộ trình dựa trên vốn liếng mới
+                await _roadmapEngineService.RecalculateRoadmapAsync(request.StudentId);
+
+                return Ok(new { Message = $"Đã ghi nhận {request.AcquiredSkillNodeIds.Count} kỹ năng. Lộ trình đang được cập nhật lại!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = "Lỗi hệ thống khi lưu kỹ năng tự khai báo", Detail = ex.Message });
+            }
+        }
     }
 }

@@ -47,4 +47,19 @@ namespace Service_TechCompass.DTOs.Assessment
         public string? AiFeedback { get; set; }
         public DateTime? TakenAt { get; set; }
     }
+
+    public class SelfDeclareSkillDto
+    {
+        public Guid StudentId { get; set; }
+        public List<int> AcquiredSkillNodeIds { get; set; }
+    }
+
+    public class SkillDeclarationItem
+    {
+        public int SkillNodeId { get; set; }
+
+        // Tự đánh giá mức độ tự tin/điểm số (ví dụ: thang 10)
+        public decimal SelfAssessedScore { get; set; }
+    }
+
 }

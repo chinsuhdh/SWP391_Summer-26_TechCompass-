@@ -10,6 +10,10 @@ namespace Repository_TechCompass.Models
         public int SkillNodeId { get; set; }
         public decimal TotalQuizScore { get; set; }
         public decimal TotalCodeScore { get; set; }
+
+        // Thêm trường này để phân loại
+        public string AssessmentType { get; set; } = "TESTED";
+
         public DateTime TakenAt { get; set; }
 
         public virtual Student Student { get; set; } = null!;

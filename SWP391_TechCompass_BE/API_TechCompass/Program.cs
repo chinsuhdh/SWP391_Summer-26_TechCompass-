@@ -85,6 +85,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminContentService, AdminContentService>();
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
+            builder.Services.AddScoped<ISkillGapReportService, SkillGapReportService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
             builder.Services.AddScoped<IVirtualMentorService, VirtualMentorService>();
 

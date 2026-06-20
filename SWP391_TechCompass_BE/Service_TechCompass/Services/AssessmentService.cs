@@ -22,7 +22,6 @@ namespace Service_TechCompass.Services
         private readonly IConfiguration _configuration;
         private readonly IQuizSyncService _quizSyncService;
 
-        // Khai báo 2 biến để hứng 2 service khác nhau từ Kernel
         private readonly IChatCompletionService _geminiService;
         private readonly IChatCompletionService _openAiAnalyzer;
 
@@ -38,7 +37,6 @@ namespace Service_TechCompass.Services
             _configuration = configuration;
             _quizSyncService = quizSyncService;
 
-            // Kéo song song 2 Model từ Kernel DI thông qua ServiceId
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
             _openAiAnalyzer = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
         }
@@ -50,7 +48,6 @@ namespace Service_TechCompass.Services
         {
             var realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
 
-            // Nếu DB chưa có câu hỏi nào (hoặc ít hơn 5 câu), dùng Gemini AI để tự động sinh đề mới
             if (realQuestions == null || realQuestions.Count < 5)
             {
                 var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
@@ -79,7 +76,6 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
 ]";
                         chatHistory.AddUserMessage(prompt);
 
-                        // DÙNG GEMINI ĐỂ SINH MẢNG JSON CÂU HỎI TRẮC NGHIỆM
                         var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                         string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề lý thuyết.");
 
@@ -95,7 +91,6 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
                             throw new Exception($"AI không trả về JSON Array hợp lệ. Data AI gửi về: {aiRawText}");
                         }
 
-                        // Parse kết quả AI thành List các model DB
                         var generatedQuestions = JsonSerializer.Deserialize<List<AssessmentQuestion>>(
                             aiRawText,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
@@ -106,22 +101,17 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
                             foreach (var q in generatedQuestions)
                             {
                                 q.SkillNodeId = skillNodeId;
-                                // Chuẩn hóa CorrectAnswer (Đề phòng AI sinh thừa chữ như "A." thay vì "A")
                                 q.CorrectAnswer = q.CorrectAnswer?.Trim().ToUpper();
                                 if (q.CorrectAnswer?.Length > 1) q.CorrectAnswer = q.CorrectAnswer.Substring(0, 1);
                             }
 
-                            // Lưu trực tiếp toàn bộ câu hỏi do AI tạo vào Database
                             await _repository.SaveQuestionsAsync(generatedQuestions);
-
-                            // Load lại câu hỏi vừa lưu
                             realQuestions = await _repository.GetQuestionsBySkillNodeAsync(skillNodeId, 10);
                         }
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"[Tự động tạo Quiz bằng AI thất bại]: {ex.Message}");
-                        // Fallback an toàn: Nếu AI lỗi (do hết quota hoặc timeout), chạy lại API quizapi.io cũ
                         try
                         {
                             string keyword = node.NodeName.Split(' ')[0];
@@ -173,8 +163,7 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
             if (node == null) throw new Exception("Không tìm thấy kỹ năng này trong Database.");
 
-            // LOGIC MỚI: PHÂN TÍCH NGÔN NGỮ LẬP TRÌNH DỰA THEO TÊN KỸ NĂNG (NODE NAME)
-            string targetLanguage = "C#"; // Mặc định là C#
+            string targetLanguage = "C#";
             string defaultTemplate = "using System;\\n\\npublic class Solution {\\n    public static void Main() {\\n        // Viết code của bạn tại đây\\n    }\\n}";
 
             string lowerNodeName = node.NodeName.ToLower();
@@ -203,7 +192,6 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             var chatHistory = new ChatHistory();
             chatHistory.AddSystemMessage("You are a strict automated JSON generator. Do not include markdown codeblocks like ```json.");
 
-            // CẬP NHẬT PROMPT ĐỂ TRUYỀN NGÔN NGỮ ĐÍCH VÀO
             string prompt = $@"Bạn là một chuyên gia tạo đề thi lập trình (Problem Setter) trên HackerRank.
 Hãy tạo 1 bài tập lập trình cơ bản bằng ngôn ngữ '{targetLanguage}' để kiểm tra kỹ năng '{node.NodeName}'.
 YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT chuỗi JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
@@ -220,7 +208,6 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
 
             try
             {
-                // Gọi API Gemini
                 var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                 string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề bài.");
 
@@ -271,10 +258,10 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                 SessionId = Guid.NewGuid(),
                 StudentId = submission.StudentId,
                 SkillNodeId = submission.SkillNodeId,
+                AssessmentType = "TESTED", // Gán cờ rõ ràng cho bài làm thật
                 TakenAt = DateTime.Now
             };
 
-            // 1. Chấm điểm trắc nghiệm và gán thực thể con
             var questionIds = submission.QuizAnswers.Select(a => a.QuestionId).ToList();
             var dbQuestions = await _repository.GetQuestionsByIdsAsync(questionIds);
             int correctCount = 0;
@@ -298,7 +285,6 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
             }
             session.TotalQuizScore = dbQuestions.Count > 0 ? (decimal)correctCount / dbQuestions.Count * 10 : 0;
 
-            // 2. Chấm điểm Code & Phân tích bằng OpenAI
             decimal executionScore = 0.0m;
             string codeExecutionFeedback = string.Empty;
             string aiFeedback = "Không thể kết nối đến AI Engine.";
@@ -371,7 +357,6 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                     codeExecutionFeedback = $"Lỗi Compiler: {ex.Message}";
                 }
 
-                // Thực hiện gọi Prompt phân tích Clean Code qua Semantic Kernel
                 var chatHistory = new ChatHistory();
                 chatHistory.AddSystemMessage("Bạn là một Senior Software Engineer đóng vai trò Code Reviewer. Hãy phân tích ngắn gọn, trực diện.");
 
@@ -390,18 +375,15 @@ Chỉ trả về nội dung nhận xét.";
 
                 try
                 {
-                    // ƯU TIÊN 1: DÙNG OPENAI ĐỂ ĐẢM BẢO KHẢ NĂNG ĐỌC HIỂU LOGIC VÀ THUẬT TOÁN
                     var response = await _openAiAnalyzer.GetChatMessageContentAsync(chatHistory);
                     aiFeedback = response.ToString();
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"\n[LỖI OPENAI CODE REVIEW]: {ex.Message}");
-
                     try
                     {
                         Console.WriteLine("=> Đang chuyển hướng (Fallback) sang dùng Gemini để chấm bài...");
-                        // ƯU TIÊN 2: NẾU OPENAI HẾT QUOTA / LỖI MẠNG -> CHUYỂN SANG GEMINI
                         var fallbackResponse = await _geminiService.GetChatMessageContentAsync(chatHistory);
                         aiFeedback = fallbackResponse.ToString();
                     }
@@ -454,6 +436,7 @@ Chỉ trả về nội dung nhận xét.";
                 totalQuizScore = h.TotalQuizScore,
                 totalCodeScore = h.TotalCodeScore,
                 testScore = h.TotalQuizScore + h.TotalCodeScore,
+                assessmentType = h.AssessmentType,
                 takenAt = h.TakenAt
             });
         }
@@ -504,7 +487,6 @@ Chỉ trả về nội dung nhận xét.";
         // ==========================================
         // LUỒNG ĐÁNH GIÁ TOÀN DIỆN THEO NGHỀ NGHIỆP (ROLE-BASED)
         // ==========================================
-
         public async Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId)
         {
             var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
@@ -512,15 +494,12 @@ Chỉ trả về nội dung nhận xét.";
                 throw new Exception("Chưa có kỹ năng nào được cấu hình cho ngành nghề này trong Database.");
 
             var finalQuestions = new List<AssessmentQuestion>();
-
-            // Tính toán số lượng câu hỏi cần lấy cho mỗi kỹ năng để trải đều (Ví dụ: 10 câu / 5 kỹ năng = 2 câu/kỹ năng)
             int questionsPerNode = (int)Math.Ceiling(10.0 / nodes.Count);
 
             foreach (var node in nodes)
             {
                 var dbQuestions = await _repository.GetQuestionsBySkillNodeAsync(node.SkillNodeId, 10);
 
-                // NẾU KỸ NĂNG NÀY TRONG DB CHƯA CÓ ĐỦ CÂU HỎI -> GỌI AI TẠO VÀ LƯU XUỐNG DB
                 if (dbQuestions == null || dbQuestions.Count < questionsPerNode)
                 {
                     dbQuestions = await GenerateAndSaveQuestionsForNodeAsync(node.SkillNodeId, node.NodeName, 5);
@@ -528,14 +507,12 @@ Chỉ trả về nội dung nhận xét.";
 
                 if (dbQuestions != null && dbQuestions.Any())
                 {
-                    // Bốc ngẫu nhiên số lượng câu hỏi đã chia đều
                     finalQuestions.AddRange(dbQuestions.OrderBy(x => Guid.NewGuid()).Take(questionsPerNode));
                 }
 
-                if (finalQuestions.Count >= 10) break; // Dừng lại khi đã gom đủ 10 câu
+                if (finalQuestions.Count >= 10) break;
             }
 
-            // Shuffle toàn bộ đề thi lần cuối
             finalQuestions = finalQuestions.OrderBy(x => Guid.NewGuid()).Take(10).ToList();
 
             return finalQuestions.Select(q => new QuizQuestionDto
@@ -543,12 +520,12 @@ Chỉ trả về nội dung nhận xét.";
                 QuestionId = q.QuestionId,
                 QuestionText = q.QuestionText,
                 Options = new Dictionary<string, string>
-        {
-            { "A", q.OptionA ?? "True" },
-            { "B", q.OptionB ?? "False" },
-            { "C", q.OptionC ?? "" },
-            { "D", q.OptionD ?? "" }
-        }.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
+                {
+                    { "A", q.OptionA ?? "True" },
+                    { "B", q.OptionB ?? "False" },
+                    { "C", q.OptionC ?? "" },
+                    { "D", q.OptionD ?? "" }
+                }.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
             }).ToList();
         }
 
@@ -557,13 +534,11 @@ Chỉ trả về nội dung nhận xét.";
             var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
             if (nodes == null || !nodes.Any()) throw new Exception("Chưa có kỹ năng nào được cấu hình.");
 
-            // Chọn node quan trọng nhất có yêu cầu Code (IsCodingRequired) để kiểm tra thực hành
             var targetNode = nodes.FirstOrDefault(n => n.IsCodingRequired == true) ?? nodes.First();
 
             return await GetOrGenerateCodingExerciseAsync(targetNode.SkillNodeId);
         }
 
-        // HÀM HELPER: GỌI GEMINI AI TẠO CÂU HỎI VÀ LƯU VÀO DATABASE
         private async Task<List<AssessmentQuestion>> GenerateAndSaveQuestionsForNodeAsync(int skillNodeId, string nodeName, int count)
         {
             try
@@ -620,6 +595,69 @@ Cấu trúc JSON bắt buộc:
                 Console.WriteLine($"[Tự động tạo Quiz bằng AI thất bại cho Node {nodeName}]: {ex.Message}");
             }
             return new List<AssessmentQuestion>();
+        }
+
+        // ==========================================
+        // KHAI BÁO NĂNG LỰC ĐẦU VÀO (FR3.1)
+        // ==========================================
+        public async Task<bool> SaveSelfDeclaredSkillsAsync(Guid studentId, List<int> acquiredSkillNodeIds)
+        {
+            try
+            {
+                // 1. Lấy toàn bộ lịch sử các bài đã làm (kể cả thi thật và khai báo)
+                var allHistory = await _repository.GetAssessmentSessionsByStudentAsync(studentId);
+
+                // Lọc ra danh sách các bài TỰ KHAI BÁO trước đây
+                var existingDeclaredSessions = allHistory.Where(h => h.AssessmentType == "SELF_DECLARED").ToList();
+                var nodesToKeep = acquiredSkillNodeIds ?? new List<int>();
+
+                // 2. TÌM VÀ XÓA CÁC BÀI USER ĐÃ BỎ TICK
+                foreach (var session in existingDeclaredSessions)
+                {
+                    if (!nodesToKeep.Contains(session.SkillNodeId))
+                    {
+                        // Gọi repo xóa session này (Hàm này cậu vừa thêm ở bước 1)
+                        await _repository.DeleteAssessmentSessionAsync(session.SessionId);
+                    }
+                }
+
+                // 3. TÌM VÀ THÊM MỚI CÁC BÀI USER VỪA TICK
+                var existingDeclaredNodeIds = existingDeclaredSessions.Select(s => s.SkillNodeId).ToList();
+
+                foreach (var nodeId in nodesToKeep)
+                {
+                    // Nếu kỹ năng này đã được khai báo từ trước -> Bỏ qua
+                    if (existingDeclaredNodeIds.Contains(nodeId)) continue;
+
+                    // Nếu user ĐÃ THI THẬT và được điểm cao -> Bỏ qua, tôn trọng kết quả thực tế
+                    var passedTest = allHistory.FirstOrDefault(h =>
+                        h.SkillNodeId == nodeId &&
+                        h.AssessmentType == "TESTED" &&
+                        (h.TotalQuizScore + h.TotalCodeScore) >= 10);
+
+                    if (passedTest != null) continue;
+
+                    // Tạo session giả lập với cờ SELF_DECLARED
+                    var newSession = new AssessmentSession
+                    {
+                        SessionId = Guid.NewGuid(),
+                        StudentId = studentId,
+                        SkillNodeId = nodeId,
+                        TotalQuizScore = 10.0m,
+                        TotalCodeScore = 10.0m,
+                        AssessmentType = "SELF_DECLARED",
+                        TakenAt = DateTime.Now
+                    };
+
+                    await _repository.SaveAssessmentSessionAsync(newSession);
+                }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
         }
     }
 }

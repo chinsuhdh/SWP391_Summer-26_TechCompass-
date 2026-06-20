@@ -668,17 +668,29 @@ public partial class Swp391CareerRoadmapContext : DbContext
         {
             entity.HasKey(e => e.SessionId);
             entity.ToTable("assessment_sessions");
+
             entity.Property(e => e.SessionId)
                 .ValueGeneratedNever()
                 .HasColumnName("session_id");
+
             entity.Property(e => e.StudentId).HasColumnName("student_id");
             entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
+
             entity.Property(e => e.TotalQuizScore)
                 .HasColumnType("decimal(4, 2)")
                 .HasColumnName("total_quiz_score");
+
             entity.Property(e => e.TotalCodeScore)
                 .HasColumnType("decimal(4, 2)")
                 .HasColumnName("total_code_score");
+
+            entity.Property(e => e.AssessmentType)
+                .IsRequired()
+                .HasMaxLength(20)
+                .IsUnicode(false) 
+                .HasColumnName("assessment_type")
+                .HasDefaultValueSql("('TESTED')");
+
             entity.Property(e => e.TakenAt)
                 .HasColumnType("datetime")
                 .HasColumnName("taken_at")
@@ -688,13 +700,13 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .WithMany()
                 .HasForeignKey(d => d.StudentId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_assessment_session_student"); // ĐÃ SỬA Ở ĐÂY
+                .HasConstraintName("fk_assessment_session_student");
 
             entity.HasOne(d => d.SkillNode)
                 .WithMany()
                 .HasForeignKey(d => d.SkillNodeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_assessment_session_skillnode"); // ĐÃ SỬA Ở ĐÂY
+                .HasConstraintName("fk_assessment_session_skillnode");
         });
 
         modelBuilder.Entity<AssessmentQuizDetail>(entity =>

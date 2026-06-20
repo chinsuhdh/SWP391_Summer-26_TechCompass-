@@ -28,5 +28,7 @@ namespace Service_TechCompass.Interfaces
         // Thêm 2 hàm này vào interface
         Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId);
         Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId);
+
+        Task<bool> SaveSelfDeclaredSkillsAsync(Guid studentId, List<int> acquiredSkillNodeIds);
     }
 }

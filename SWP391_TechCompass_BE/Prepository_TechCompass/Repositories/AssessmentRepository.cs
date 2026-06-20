@@ -172,5 +172,17 @@ namespace Repository_TechCompass.Repositories
                 .OrderBy(sn => sn.PriorityLevel)
                 .ToListAsync();
         }
+
+        public async Task<bool> DeleteAssessmentSessionAsync(Guid sessionId)
+        {
+            var session = await _context.AssessmentSessions.FindAsync(sessionId);
+            if (session != null)
+            {
+                _context.AssessmentSessions.Remove(session);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            return false;
+        }
     }
 }

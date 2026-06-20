@@ -1,5 +1,6 @@
-﻿using Microsoft.AspNetCore.Hosting; // Thêm using này tại Controller
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Threading.Tasks;
 using Service_TechCompass.Interfaces;
 
 namespace API_TechCompass.Controllers
@@ -8,33 +9,44 @@ namespace API_TechCompass.Controllers
     [ApiController]
     public class SkillGapReportsController : ControllerBase
     {
-        private readonly ISkillGapReportService _skillGapReportService;
-        private readonly IWebHostEnvironment _env; // Inject vào đây
+        private readonly ISkillGapReportService _reportService;
 
-        public SkillGapReportsController(ISkillGapReportService skillGapReportService, IWebHostEnvironment env)
+        public SkillGapReportsController(ISkillGapReportService reportService)
         {
-            _skillGapReportService = skillGapReportService;
-            _env = env;
+            _reportService = reportService;
         }
 
-        [HttpPost("{studentId}/generate")]
-        public async Task<IActionResult> GenerateReport(Guid studentId)
+        // GET: api/SkillGapReports/{studentId}/generate
+        [HttpGet("{studentId}/generate")]
+        public async Task<IActionResult> GenerateReportJson(Guid studentId)
+        {
+            // API hiện tại trả về JSON để Frontend vẽ Chart (FR3.2)
+            var reportData = await _reportService.GetSkillGapDataAsync(studentId);
+            return Ok(new { Message = "Lấy dữ liệu Skill Gap thành công", Data = reportData });
+        }
+
+        // GET: api/SkillGapReports/{studentId}/export-pdf
+        [HttpGet("{studentId}/export-pdf")]
+        public async Task<IActionResult> ExportPdf(Guid studentId)
         {
             try
             {
-                // Lấy đường dẫn vật lý của wwwroot từ tầng API rồi truyền xuống Service dưới dạng chuỗi string thông thường
-                string webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                // 1. Lấy dữ liệu phân tích Gap
+                var reportData = await _reportService.GetSkillGapDataAsync(studentId);
 
-                var result = await _skillGapReportService.GenerateGapReportAsync(studentId, webRootPath);
-                return Ok(new
-                {
-                    Message = "Sinh báo cáo khoảng trống kỹ năng thành công",
-                    Data = result
-                });
+                // 2. Generate PDF thành mảng byte (Sử dụng QuestPDF, DinkToPdf hoặc iTextSharp trong Service)
+                byte[] pdfBytes = await _reportService.GeneratePdfReportAsync(reportData);
+
+                // 3. Trả về FileContentResult để Browser tự động tải
+                string fileName = $"Skill_Gap_Report_{studentId}_{DateTime.Now:yyyyMMdd}.pdf";
+
+                // Content-Type "application/pdf" chuẩn chỉ cho file PDF
+                return File(pdfBytes, "application/pdf", fileName);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { Error = ex.Message });
+                Console.WriteLine($"[LỖI EXPORT PDF]: {ex.Message}");
+                return StatusCode(500, new { Error = "Không thể tạo file PDF vào lúc này." });
             }
         }
     }

@@ -1,127 +1,142 @@
-﻿using System;
+﻿// src/Service_TechCompass/Services/SkillGapReportService.cs
+using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
-using Repository_TechCompass.Interfaces;
-using Repository_TechCompass.Models;
+using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-// THÊM NAMESPACE SEMANTIC KERNEL
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
 
 namespace Service_TechCompass.Services
 {
     public class SkillGapReportService : ISkillGapReportService
     {
-        private readonly ISkillGapReportRepository _repository;
-        private readonly IConfiguration _configuration;
-        private readonly IChatCompletionService _chatCompletionService; // Thay thế HttpClient bằng SK
+        private readonly Swp391CareerRoadmapContext _context;
 
-        // Loại bỏ hoàn toàn HttpClient khỏi Constructor
-        public SkillGapReportService(ISkillGapReportRepository repository, IConfiguration configuration, Kernel kernel)
+        public SkillGapReportService(Swp391CareerRoadmapContext context)
         {
-            _repository = repository;
-            _configuration = configuration;
-            // Khởi tạo engine chat completion của Gemini
-            _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            _context = context;
         }
 
-        public async Task<SkillGapReportDto> GenerateGapReportAsync(Guid studentId, string webRootPath)
+        public async Task<object> GetSkillGapDataAsync(Guid studentId)
         {
-            var student = await _repository.GetStudentWithSkillsAndTargetAsync(studentId);
-            if (student == null || student.TargetRole == null)
-                throw new Exception("Không tìm thấy sinh viên hoặc sinh viên chưa chọn Target Career Role.");
-
-            var requiredNodes = student.TargetRole.TechPaths
-                                       .SelectMany(tp => tp.SkillNodes)
-                                       .Select(n => n.NodeName)
-                                       .MakeDistinct().ToList();
-
-            var passedNodes = student.SkillAssessments
-                                     .Where(a => a.TestScore >= 5 && a.SkillNode != null)
-                                     .Select(a => a.SkillNode.NodeName)
-                                     .MakeDistinct().ToList();
-
-            var missingSkills = requiredNodes.Except(passedNodes).ToList();
-
-            string aiSummary = await GenerateAiSummaryAsync(student.TargetRole.RoleName, passedNodes, missingSkills);
-
-            string fileUrl = await GenerateMockPdfFileAsync(student.StudentId, student.FullName, aiSummary, missingSkills, webRootPath);
-
-            var report = new SkillGapReport
+            var student = await _context.Students.FindAsync(studentId);
+            if (student == null || student.TargetRoleId == null)
             {
-                ReportId = Guid.NewGuid(),
-                StudentId = studentId,
-                Summary = aiSummary,
-                PdfUrl = fileUrl,
-                GeneratedAt = DateTime.Now
-            };
-
-            await _repository.SaveReportAsync(report);
-
-            return new SkillGapReportDto
-            {
-                ReportId = report.ReportId,
-                Summary = report.Summary,
-                PdfUrl = report.PdfUrl,
-                GeneratedAt = report.GeneratedAt
-            };
-        }
-
-        private async Task<string> GenerateAiSummaryAsync(string roleName, List<string> passed, List<string> missing)
-        {
-            var chatHistory = new ChatHistory();
-            chatHistory.AddSystemMessage("Bạn là chuyên gia phân tích nhân sự và kỹ năng ngành IT (Tech Career Advisor).");
-
-            string prompt = $"Sinh viên đang hướng tới vai trò '{roleName}'. " +
-                            $"Kỹ năng đã có: {string.Join(", ", passed)}. " +
-                            $"Kỹ năng còn thiếu: {string.Join(", ", missing)}. " +
-                            $"Hãy viết 1 đoạn văn ngắn (tối đa 4 câu) bằng tiếng Việt đánh giá lộ trình và ưu tiên học kỹ năng nào trước để nhanh chóng đáp ứng nhu cầu tuyển dụng.";
-
-            chatHistory.AddUserMessage(prompt);
-
-            try
-            {
-                // Đăng ký gọi kết nối API thông qua lõi kết nối Semantic Kernel
-                var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
-                return response.ToString() ?? "Phân tích khoảng trống kỹ năng hoàn tất.";
+                return new List<SkillGapItemDto>();
             }
-            catch
+
+            // 1. LẤY TÊN TARGET ROLE (Ngữ cảnh Mục tiêu)
+            var role = await _context.Roles.FindAsync(student.TargetRoleId);
+            string targetRoleName = role != null ? role.RoleName : $"Role ID: {student.TargetRoleId}";
+
+            var requiredNodes = await (from path in _context.TechPaths
+                                       join node in _context.SkillNodes on path.TechPathId equals node.TechPathId
+                                       where path.TargetRoleId == student.TargetRoleId
+                                       select node).ToListAsync();
+
+            var userSessions = await _context.AssessmentSessions
+                .Where(s => s.StudentId == studentId)
+                .GroupBy(s => s.SkillNodeId)
+                .Select(g => new
+                {
+                    SkillNodeId = g.Key,
+                    MaxScore = g.Max(x => x.TotalQuizScore + x.TotalCodeScore)
+                })
+                .ToListAsync();
+
+            var result = new List<SkillGapItemDto>();
+
+            foreach (var node in requiredNodes)
             {
-                return "Hệ thống AI hiện không khả dụng, nhưng bạn có thể xem chi tiết kỹ năng còn thiếu trong file Report.";
+                var session = userSessions.FirstOrDefault(s => s.SkillNodeId == node.SkillNodeId);
+                decimal currentPercent = session != null ? (session.MaxScore / 20.0m) * 100m : 0m;
+
+                result.Add(new SkillGapItemDto
+                {
+                    NodeName = node.NodeName,
+                    CurrentScore = Math.Round(currentPercent, 0),
+                    TargetScore = 80,
+                    RoleName = targetRoleName // Truyền tên Role ra ngoài
+                });
             }
+
+            return result;
         }
 
-        private async Task<string> GenerateMockPdfFileAsync(Guid studentId, string studentName, string summary, List<string> missingSkills, string webRootPath)
+        public async Task<byte[]> GeneratePdfReportAsync(object reportData)
         {
-            string folderPath = Path.Combine(webRootPath, "reports");
-            if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
+            var data = reportData as List<SkillGapItemDto>;
+            if (data == null || !data.Any()) throw new ArgumentException("Dữ liệu report không hợp lệ.");
 
-            string fileName = $"GapReport_{studentId}_{DateTime.Now:yyyyMMddHHmmss}.html";
-            string filePath = Path.Combine(folderPath, fileName);
+            // Lấy tên Role từ phần tử đầu tiên
+            string targetRoleName = data.First().RoleName;
 
-            string htmlContent = $@"
-                <h1>Skill Gap Report</h1>
-                <h3>Học viên: {studentName}</h3>
-                <p><strong>AI Đánh giá:</strong> {summary}</p>
-                <h4>Kỹ năng cần bổ sung gấp:</h4>
-                <ul>{string.Join("", missingSkills.Select(m => $"<li>{m}</li>"))}</ul>";
+            PdfDocumentBuilder builder = new PdfDocumentBuilder();
+            PdfPageBuilder page = builder.AddPage(PageSize.A4);
 
-            await File.WriteAllTextAsync(filePath, htmlContent);
+            var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+            var fontBold = builder.AddStandard14Font(Standard14Font.HelveticaBold);
+            var fontOblique = builder.AddStandard14Font(Standard14Font.HelveticaOblique); // Dùng cho Link
 
-            return $"/reports/{fileName}";
-        }
-    }
+            // Vẽ Header & Ngữ cảnh Mục tiêu
+            page.AddText("TECH COMPASS - SKILL GAP ANALYSIS REPORT", 16, new PdfPoint(50, 750), fontBold);
+            page.AddText($"Generated Date: {DateTime.Now:yyyy-MM-dd HH:mm}", 10, new PdfPoint(50, 730), font);
 
-    // Hàm mở rộng nội bộ hỗ trợ loại bỏ trùng lặp phần tử danh sách nhanh
-    internal static class IEnumerableExtensions
-    {
-        public static IEnumerable<T> MakeDistinct<T>(this IEnumerable<T> source)
-        {
-            return source.Distinct();
+            // ĐÃ THÊM: Ngữ cảnh Target Role
+            page.AddText($"Target Role: {targetRoleName}", 12, new PdfPoint(50, 715), fontBold);
+            page.AddText("--------------------------------------------------------------------------------", 12, new PdfPoint(50, 700), font);
+
+            page.AddText("Missing & Improvement Areas:", 14, new PdfPoint(50, 670), fontBold);
+
+            int currentY = 640;
+
+            var missingSkills = data.Where(d => d.CurrentScore < d.TargetScore)
+                                    .OrderByDescending(d => d.TargetScore - d.CurrentScore)
+                                    .ToList();
+
+            if (missingSkills.Any())
+            {
+                int index = 1;
+                foreach (var skill in missingSkills)
+                {
+                    decimal gapSize = skill.TargetScore - skill.CurrentScore;
+                    string priority = gapSize >= 40 ? "HIGH" : gapSize >= 20 ? "MEDIUM" : "LOW";
+
+                    // ĐÃ SỬA: Cụ thể hóa bằng hệ quy chiếu và thêm Link
+                    string line1 = $"{index}. {skill.NodeName} - Priority: {priority}";
+                    string line2 = $"    Current Skill Level: {skill.CurrentScore}% | Market Target: {skill.TargetScore}% -> Gap: {gapSize}%";
+                    string line3 = $"    Learning Link: http://localhost:5173/dashboard/learning?skill={Uri.EscapeDataString(skill.NodeName)}";
+
+                    page.AddText(line1, 12, new PdfPoint(50, currentY), fontBold);
+                    page.AddText(line2, 10, new PdfPoint(50, currentY - 15), font);
+                    page.AddText(line3, 10, new PdfPoint(50, currentY - 30), fontOblique); // In nghiêng cho giống link
+
+                    currentY -= 55;
+                    index++;
+
+                    if (currentY < 100)
+                    {
+                        page = builder.AddPage(PageSize.A4);
+                        currentY = 750;
+                    }
+                }
+            }
+            else
+            {
+                page.AddText("Excellent! You meet all the requirements for your Target Role.", 12, new PdfPoint(50, currentY), font);
+                currentY -= 30;
+            }
+
+            // Lời khuyên cuối cùng (Action Call)
+            page.AddText("Recommendation: Focus on HIGH priority skills. Access the Learning Hub links above to start.", 12, new PdfPoint(50, currentY - 20), fontBold);
+
+            return builder.Build();
         }
     }
 }
