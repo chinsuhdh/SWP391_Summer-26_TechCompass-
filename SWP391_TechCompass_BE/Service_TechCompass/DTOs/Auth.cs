@@ -30,4 +30,9 @@
         public string Email { get; set; } = null!;
         public string OtpCode { get; set; } = null!;
     }
+
+    public class GoogleLoginDto
+    {
+        public string IdToken { get; set; } = null!;
+    }
 }

@@ -9,5 +9,7 @@ namespace Service_TechCompass.Services
         (int StatusCode, string Message, string Token) Login(LoginDto request);
         Task<(int StatusCode, string Message)> ForgotPasswordAsync(ForgotPasswordDto request);
         (int StatusCode, string Message) ResetPassword(VerifyOtpAndResetPasswordDto request);
+
+        Task<(int StatusCode, string Message, string Token)> GoogleLoginAsync(GoogleLoginDto request);
     }
 }

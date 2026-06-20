@@ -1,13 +1,13 @@
 ﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Google.Apis.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
-using Repository_TechCompass.Repositories;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using Repository_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
 {
@@ -142,17 +142,88 @@ namespace Service_TechCompass.Services
             return (200, "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập ngay bây giờ.");
         }
 
+        public async Task<(int StatusCode, string Message, string Token)> GoogleLoginAsync(GoogleLoginDto request)
+        {
+            try
+            {
+                // 1. Dùng thư viện Google để verify idToken nhận từ Frontend
+                var settings = new GoogleJsonWebSignature.ValidationSettings()
+                {
+                    // Tùy chọn: Để bảo mật tối đa, cậu có thể giới hạn chỉ chấp nhận token tạo ra từ Client ID của dự án
+                    // Audience = new List<string>() { _config["Google:ClientId"] } 
+                };
+
+                var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+
+                if (payload == null)
+                {
+                    return (401, "Google Token không hợp lệ.", string.Empty);
+                }
+
+                // 2. Kiểm tra xem user này đã tồn tại trong DB chưa
+                var user = _userRepo.GetUserByEmail(payload.Email);
+
+                if (user == null)
+                {
+                    // 3A. Nếu chưa có: Tự động đăng ký tài khoản mới cho user
+                    user = new User
+                    {
+                        UserId = Guid.NewGuid(),
+                        Email = payload.Email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
+                        Provider = "Google",
+                        IsActive = true, // Đăng nhập Google thì nghiễm nhiên email đã được xác thực
+                        CreatedAt = DateTime.Now,
+                        RoleId = 2, // Mặc định là Student
+                    };
+
+                    _userRepo.AddUser(user);
+
+                    var newStudent = new Student
+                    {
+                        StudentId = Guid.NewGuid(),
+                        UserId = user.UserId,
+                        FullName = payload.Name, // Lấy tên thật từ tài khoản Google
+                        UpdatedAt = DateTime.Now
+                    };
+
+                    _userRepo.AddStudent(newStudent);
+                    _userRepo.SaveChanges();
+                }
+                else
+                {
+                    // 3B. Nếu đã có: Kiểm tra trạng thái tài khoản
+                    if (user.IsActive == false)
+                    {
+                        user.IsActive = true;
+                        user.OtpCode = null;
+                        user.OtpExpiry = null;
+                        _userRepo.SaveChanges();
+                    }
+                }
+
+                // 4. Tạo JWT Token của hệ thống TechCompass và trả về cho Frontend
+                var token = GenerateJwtToken(user);
+                return (200, "Đăng nhập bằng Google thành công!", token);
+            }
+            catch (InvalidJwtException)
+            {
+                return (400, "Token Google đã hết hạn hoặc bị giả mạo.", string.Empty);
+            }
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi hệ thống: {ex.Message}", string.Empty);
+            }
+        }
+
         private string GenerateJwtToken(User user)
         {
             var jwtConfig = _config.GetSection("Jwt");
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            // 1. TÌM THÔNG TIN STUDENT TỪ USER ID
-            // Nhờ hàm bạn đã định nghĩa trong IUserRepository
             var student = _userRepo.GetStudentByUserId(user.UserId);
 
-            // 2. TẠO DANH SÁCH CLAIM CƠ BẢN
             var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
@@ -161,13 +232,9 @@ namespace Service_TechCompass.Services
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
-            // 3. THÊM STUDENT ID VÀO TOKEN (Nếu user là sinh viên)
             if (student != null)
             {
-                // Key này bắt buộc viết là "StudentId" để Frontend ở bước trước có thể đọc được
                 claims.Add(new Claim("StudentId", student.StudentId.ToString()));
-
-                // Bạn có thể nhét thêm FullName để FE hiện lời chào nếu thích
                 claims.Add(new Claim("FullName", student.FullName ?? ""));
             }
 
