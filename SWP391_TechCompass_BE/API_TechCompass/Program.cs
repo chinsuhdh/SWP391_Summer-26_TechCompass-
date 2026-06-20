@@ -37,32 +37,26 @@ namespace API_TechCompass
 
             // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
 
-            // Lấy config Gemini
             var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
             var geminiApiKey = geminiConfig["ApiKey"];
             var geminiModelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
 
-            // Lấy config OpenAI
             var openAiConfig = builder.Configuration.GetSection("OpenAiApiConfig");
             var openAiApiKey = openAiConfig["ApiKey"];
             var openAiModelId = openAiConfig["ModelId"] ?? "gpt-4o-mini";
 
-            // Validate Key
             if (string.IsNullOrEmpty(geminiApiKey) || string.IsNullOrEmpty(openAiApiKey))
             {
                 throw new InvalidOperationException("[LỖI CẤU HÌNH NGHIÊM TRỌNG]: API Key của Gemini hoặc OpenAI bị rỗng trong appsettings.json!");
             }
 
-            // Đưa khởi tạo Builder vào BÊN TRONG AddTransient để đảm bảo Thread-Safe cho mỗi Request
             builder.Services.AddTransient<Kernel>(sp =>
             {
                 return Kernel.CreateBuilder()
-                    // Dành cho Chatbot, Survey, Sinh Roadmap (Tốc độ nhanh, chi phí rẻ)
                     .AddGoogleAIGeminiChatCompletion(
                         modelId: geminiModelId,
                         apiKey: geminiApiKey,
                         serviceId: "GeminiChat")
-                    // Dành cho Code Review, Pattern Analysis (Đòi hỏi logic sâu)
                     .AddOpenAIChatCompletion(
                         modelId: openAiModelId,
                         apiKey: openAiApiKey,
@@ -106,9 +100,10 @@ namespace API_TechCompass
                 options.AddPolicy("AllowAll",
                     policy =>
                     {
-                        policy.AllowAnyOrigin()
+                        policy.WithOrigins("http://localhost:5173") // CHỈ ĐỊNH ĐÚNG URL CỦA VITE REACT
                               .AllowAnyMethod()
-                              .AllowAnyHeader();
+                              .AllowAnyHeader()
+                              .AllowCredentials(); // BẮT BUỘC PHẢI CÓ DÒNG NÀY CHO SIGNALR
                     });
             });
 
@@ -180,7 +175,10 @@ namespace API_TechCompass
             app.UseAuthorization();
 
             app.MapControllers();
-            app.MapHub<Service_TechCompass.Hubs.MentorChatHub>("/mentorChatHub");
+
+            // MAP CÁC HUB SIGNALR
+            app.MapHub<Service_TechCompass.Hubs.RoadmapNotificationHub>("/hubs/roadmap");
+            app.MapHub<Service_TechCompass.Hubs.VirtualMentorChatHub>("/hubs/virtualMentor");
 
             app.Run();
         }

@@ -69,9 +69,7 @@ namespace API_TechCompass.Controllers
             return Ok(new { message = res.Message, data = res.Data });
         }
 
-        // ==============================================================
-        // ĐÂY LÀ ĐOẠN BỊ THIẾU GÂY LỖI 404 KHI BẤM NÚT TẠO LỘ TRÌNH TỪ AI
-        // ==============================================================
+        
         [HttpPost("generate-from-session/{sessionId}")]
         public async Task<IActionResult> GenerateRoadmapFromSession(Guid sessionId)
         {

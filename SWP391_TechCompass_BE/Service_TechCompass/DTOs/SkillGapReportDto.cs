@@ -14,7 +14,6 @@
         public decimal CurrentScore { get; set; }
         public decimal TargetScore { get; set; }
 
-        // Bổ sung thêm Target Role Name
         public string RoleName { get; set; } = string.Empty;
     }
 }
