@@ -27,11 +27,9 @@ namespace API_TechCompass
             // 2. ĐĂNG KÝ REPOSITORY
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
-            builder.Services.AddScoped<IMentorRepository, MentorRepository>();
             builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
             builder.Services.AddScoped<IStudentRepository, StudentRepository>();
             builder.Services.AddScoped<IPortfolioRepository, PortfolioRepository>();
-            builder.Services.AddScoped<IMentorBookingRepository, MentorBookingRepository>();
             builder.Services.AddScoped<IRoleRepository, RoleRepository>();
             builder.Services.AddScoped<IContentRepository, ContentRepository>();
             builder.Services.AddScoped<IPracticeWorkspaceRepository, PracticeWorkspaceRepository>();
@@ -78,10 +76,8 @@ namespace API_TechCompass
             builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
             builder.Services.AddScoped<IRoadmapEngineService, RoadmapEngineService>();
             builder.Services.AddScoped<IAdminAnalyticsService, AdminAnalyticsService>();
-            builder.Services.AddScoped<IAdminMentorService, AdminMentorService>();
             builder.Services.AddScoped<IAssessmentService, AssessmentService>();
             builder.Services.AddScoped<IAiTalentService, AiTalentService>();
-            builder.Services.AddScoped<IMentorBookingService, MentorBookingService>();
             builder.Services.AddScoped<IRoleService, RoleService>();
             builder.Services.AddScoped<IAdminUserService, AdminUserService>();
             builder.Services.AddScoped<IRoadmapService, RoadmapService>();
@@ -90,6 +86,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
             builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
+            builder.Services.AddScoped<IVirtualMentorService, VirtualMentorService>();
 
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();

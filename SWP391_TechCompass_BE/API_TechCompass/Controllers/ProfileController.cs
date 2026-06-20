@@ -62,5 +62,31 @@ namespace API_TechCompass.Controllers
 
             return Ok(new { message = result.Message });
         }
+
+        [HttpPost("upload-transcript")]
+        [Consumes("multipart/form-data")] 
+        public async Task<IActionResult> UploadTranscript(IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "Vui lòng chọn file bảng điểm hợp lệ." });
+            }
+
+            // Validate định dạng file (ví dụ: chỉ nhận PDF)
+            if (Path.GetExtension(file.FileName).ToLower() != ".pdf")
+            {
+                return BadRequest(new { message = "Hệ thống hiện chỉ hỗ trợ định dạng PDF." });
+            }
+
+            var userId = GetCurrentUserId();
+            var result = await _profileService.ProcessTranscriptAsync(userId, file);
+
+            if (result.StatusCode != 200)
+            {
+                return StatusCode(result.StatusCode, new { message = result.Message });
+            }
+
+            return Ok(new { message = result.Message, extractedData = result.Data });
+        }
     }
 }

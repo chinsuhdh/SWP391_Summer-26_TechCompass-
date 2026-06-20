@@ -38,5 +38,36 @@ namespace Repository_TechCompass.Repositories
             _context.ChatMessages.Add(message);
             await _context.SaveChangesAsync();
         }
+
+        public async Task<List<ChatMessage>> GetRecentMessagesAsync(Guid sessionId, int takeCount)
+        {
+            return await _context.ChatMessages
+                .Where(m => m.AiSessionId == sessionId)
+                .OrderByDescending(m => m.SentAt) 
+                .Take(takeCount)
+                .ToListAsync();
+        }
+
+        public async Task<List<AiChatSession>> GetStudentSessionsAsync(Guid studentId, string contextType)
+        {
+            return await _context.AiChatSessions
+                .Where(s => s.StudentId == studentId && s.ContextType == contextType)
+                .OrderByDescending(s => s.StartedAt) // Xếp chat mới nhất lên đầu
+                .ToListAsync();
+        }
+
+        public async Task<AiChatSession> CreateNewAiChatSessionAsync(Guid studentId, string contextType)
+        {
+            var newSession = new AiChatSession
+            {
+                AiSessionId = Guid.NewGuid(),
+                StudentId = studentId,
+                ContextType = contextType,
+                StartedAt = DateTime.Now
+            };
+            _context.AiChatSessions.Add(newSession);
+            await _context.SaveChangesAsync();
+            return newSession;
+        }
     }
 }
