@@ -1,9 +1,11 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Service_TechCompass.DTOs;
-using Service_TechCompass.Interfaces;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Repository_TechCompass;
+using Service_TechCompass.DTOs;
+using Microsoft.EntityFrameworkCore;
+using Service_TechCompass.Interfaces;
 
 namespace API_TechCompass.Controllers
 {
@@ -87,6 +89,27 @@ namespace API_TechCompass.Controllers
             }
 
             return Ok(new { message = result.Message, extractedData = result.Data });
+        }
+
+        [HttpGet("target-roles")]
+        [AllowAnonymous] // Cho phép gọi không cần token (nếu cần) hoặc bỏ dòng này đi
+        public async Task<IActionResult> GetTargetRoles([FromServices] Swp391CareerRoadmapContext context)
+        {
+            try
+            {
+                var roles = await context.TargetCareerRoles
+                    .Select(r => new {
+                        id = r.TargetRoleId,
+                        name = r.RoleName
+                    })
+                    .ToListAsync();
+
+                return Ok(new { message = "Lấy danh sách ngành nghề thành công", data = roles });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi khi tải danh sách ngành nghề", detail = ex.Message });
+            }
         }
     }
 }

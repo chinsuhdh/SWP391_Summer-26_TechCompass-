@@ -28,5 +28,14 @@ namespace Repository_TechCompass.Interfaces
 
         // --- Save Changes ---
         void SaveChanges();
+
+
+        Task<SkillNode?> GetSkillNodeByIdAsync(int nodeId);
+        Task<List<LearningResource>> GetLearningResourcesByNodeIdAsync(int nodeId);
+
+
+        Task<LearningResource?> GetLearningResourceByIdAsync(int resourceId);
+        Task<RoadmapProgress?> GetRoadmapProgressAsync(Guid studentId, int skillNodeId);
+        Task AddRoadmapProgressAsync(RoadmapProgress progress);
     }
 }

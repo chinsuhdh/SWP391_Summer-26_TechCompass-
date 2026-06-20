@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-
+using Microsoft.EntityFrameworkCore;
 namespace API_TechCompass.Controllers
 {
     [Route("api/[controller]")]

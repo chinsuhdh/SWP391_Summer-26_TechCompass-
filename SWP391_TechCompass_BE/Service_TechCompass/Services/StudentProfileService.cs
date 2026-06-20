@@ -1,11 +1,12 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using System.Text.Json;
 using UglyToad.PdfPig;
 
 namespace Service_TechCompass.Services
@@ -46,6 +47,8 @@ namespace Service_TechCompass.Services
             return Task.FromResult<(int, string, UserStudentProfileDto?)>((200, "Lấy thông tin thành công.", profileData));
         }
 
+        
+
         public Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request)
         {
             var student = _userRepo.GetStudentByUserId(userId);
@@ -55,15 +58,28 @@ namespace Service_TechCompass.Services
             }
 
             student.FullName = request.FullName;
-            student.StudentCode = request.StudentCode;
+
+            student.StudentCode = string.IsNullOrWhiteSpace(request.StudentCode) ? null : request.StudentCode.Trim();
+
             student.LatentTalentSummary = request.LatentTalentSummary;
             student.TargetRoleId = request.TargetRoleId;
             student.UpdatedAt = DateTime.Now;
 
-            _userRepo.UpdateStudent(student);
-            _userRepo.SaveChanges();
+            try
+            {
+                _userRepo.UpdateStudent(student);
+                _userRepo.SaveChanges();
+                return Task.FromResult<(int, string)>((200, "Cập nhật hồ sơ thành công."));
+            }
+            catch (DbUpdateException ex)
+            {
+                if (ex.InnerException != null && ex.InnerException.Message.Contains("UQ_students_student_code"))
+                {
+                    return Task.FromResult<(int, string)>((400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại."));
+                }
 
-            return Task.FromResult<(int, string)>((200, "Cập nhật hồ sơ thành công."));
+                return Task.FromResult<(int, string)>((500, "Lỗi hệ thống khi lưu dữ liệu. Vui lòng thử lại sau."));
+            }
         }
 
         public async Task<(int StatusCode, string Message, object? Data)> ProcessTranscriptAsync(Guid userId, IFormFile file)

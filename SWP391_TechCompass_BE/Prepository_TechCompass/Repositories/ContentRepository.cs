@@ -1,6 +1,7 @@
-﻿using Repository_TechCompass.Interfaces;
+﻿using System;
+using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
-using System;
 
 namespace Repository_TechCompass.Repositories
 {
@@ -43,6 +44,41 @@ namespace Repository_TechCompass.Repositories
             return _context.LearningResources.FirstOrDefault(r => r.ResourceId == id);
         }
 
+        public async Task<SkillNode?> GetSkillNodeByIdAsync(int nodeId)
+        {
+            return await _context.SkillNodes
+                .FirstOrDefaultAsync(n => n.SkillNodeId == nodeId);
+        }
+
+        // Thực thi hàm lấy danh sách tài liệu theo NodeId (Bất đồng bộ)
+        public async Task<List<LearningResource>> GetLearningResourcesByNodeIdAsync(int nodeId)
+        {
+            return await _context.LearningResources
+                .Where(r => r.SkillNodeId == nodeId)
+                .ToListAsync();
+        }
+
         public void SaveChanges() => _context.SaveChanges();
+
+        // Thêm các hàm này vào trong class ContentRepository
+
+        public async Task<LearningResource?> GetLearningResourceByIdAsync(int resourceId)
+        {
+            return await _context.LearningResources
+                .FirstOrDefaultAsync(r => r.ResourceId == resourceId);
+        }
+
+        public async Task<RoadmapProgress?> GetRoadmapProgressAsync(Guid studentId, int skillNodeId)
+        {
+            return await _context.RoadmapProgresses
+                .FirstOrDefaultAsync(p => p.StudentId == studentId && p.SkillNodeId == skillNodeId);
+        }
+
+        public async Task AddRoadmapProgressAsync(RoadmapProgress progress)
+        {
+            await _context.RoadmapProgresses.AddAsync(progress);
+        }
+
     }
+
 }
