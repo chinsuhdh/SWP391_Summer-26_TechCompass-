@@ -1,4 +1,5 @@
-﻿using Service_TechCompass.DTOs;
+﻿// Service_TechCompass/Interfaces/IRoadmapEngineService.cs
+using Service_TechCompass.DTOs;
 
 namespace Service_TechCompass.Interfaces
 {
@@ -15,6 +16,7 @@ namespace Service_TechCompass.Interfaces
         // Đồng bộ điểm số từ bài đánh giá sang Tiến độ lộ trình
         Task SyncProgressAfterAssessmentAsync(Guid userId, int skillNodeId, decimal totalQuizScore, decimal totalCodeScore);
 
-        Task<(int StatusCode, string Message, GenerateRoadmapResponseDto? Data)> GenerateAiRoadmapFromSessionAsync(Guid userId, Guid sessionId);
+        // ĐÃ XÓA DÒNG CŨ VÀ CHỈ GIỮ LẠI DÒNG NÀY:
+        Task<(int StatusCode, string Message, object? Data)> GenerateAiRoadmapFromSessionAsync(Guid userId, Guid sessionId, bool confirmSwitch = false);
     }
 }

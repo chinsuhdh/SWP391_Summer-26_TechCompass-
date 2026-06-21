@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿// API_TechCompass/Controllers/RoadmapEngineController.cs
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.Interfaces;
 using System.Security.Claims;
@@ -69,12 +70,20 @@ namespace API_TechCompass.Controllers
             return Ok(new { message = res.Message, data = res.Data });
         }
 
-        
+        // =========================================================
+        // CẬP NHẬT: THÊM TÙY CHỌN [FromQuery] confirmSwitch
+        // =========================================================
         [HttpPost("generate-from-session/{sessionId}")]
-        public async Task<IActionResult> GenerateRoadmapFromSession(Guid sessionId)
+        public async Task<IActionResult> GenerateRoadmapFromSession(Guid sessionId, [FromQuery] bool confirmSwitch = false)
         {
             var userId = GetCurrentUserId();
-            var res = await _engineService.GenerateAiRoadmapFromSessionAsync(userId, sessionId);
+            var res = await _engineService.GenerateAiRoadmapFromSessionAsync(userId, sessionId, confirmSwitch);
+
+            // Bắt mã 202 (Yêu cầu xác nhận đổi ngành)
+            if (res.StatusCode == 202)
+            {
+                return StatusCode(202, new { message = res.Message, data = res.Data });
+            }
 
             if (res.StatusCode != 200)
             {

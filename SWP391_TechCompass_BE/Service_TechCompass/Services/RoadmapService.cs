@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
+using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Hubs;
 using Service_TechCompass.Interfaces;
@@ -74,22 +75,44 @@ namespace Service_TechCompass.Services
                 return (404, "Không tìm thấy hồ sơ sinh viên.");
             }
 
+            // 1. Kiểm tra điều kiện tiên quyết (Có bị khóa không?)
+            var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, request.NodeId);
+            if (!validation.IsValid)
+            {
+                return (403, "Bạn không thể hoàn thành bài học đang bị khóa.");
+            }
+
+            // 2. Tìm tiến độ hiện tại trong DB
             var progress = await _context.RoadmapProgresses
                 .FirstOrDefaultAsync(p => p.StudentId == student.StudentId && p.SkillNodeId == request.NodeId);
 
-            if (progress == null) return (404, "Không tìm thấy tiến độ của kỹ năng này.");
-
-            var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, request.NodeId);
-            if (!validation.IsValid) return (403, "Bạn không thể hoàn thành bài học đang bị khóa.");
-
-            progress.Status = "Completed";
-            progress.CompletionPercent = 100;
-            progress.CompletedAt = DateTime.Now;
-            progress.UpdatedAt = DateTime.Now;
+            // 3. LOGIC MỚI: Nếu chưa có tiến độ (chưa từng học), TỰ ĐỘNG TẠO MỚI thay vì báo lỗi 404
+            if (progress == null)
+            {
+                progress = new RoadmapProgress
+                {
+                    ProgressId = Guid.NewGuid(),
+                    StudentId = student.StudentId,
+                    SkillNodeId = request.NodeId,
+                    Status = "Completed",
+                    CompletionPercent = 100,
+                    CompletedAt = DateTime.Now,
+                    UpdatedAt = DateTime.Now
+                };
+                _context.RoadmapProgresses.Add(progress);
+            }
+            else
+            {
+                // Nếu đã có (đang học dở), thì cập nhật thành Completed
+                progress.Status = "Completed";
+                progress.CompletionPercent = 100;
+                progress.CompletedAt = DateTime.Now;
+                progress.UpdatedAt = DateTime.Now;
+            }
 
             await _context.SaveChangesAsync();
 
-            // Bắn tín hiệu Real-time về Frontend
+            // 4. Bắn tín hiệu Real-time về Frontend để UI tự update màu xanh
             await _hubContext.Clients.Group($"roadmap_user_{userId}").SendAsync("ReceiveRoadmapUpdate", new
             {
                 NodeId = request.NodeId,

@@ -25,7 +25,6 @@ namespace Service_TechCompass.Services
         {
             _userRepo = userRepo;
             _context = context;
-            // Inject OpenAI để xử lý phân tích logic mảng lộ trình và Map Market Pulse
             _aiRoadmapAnalyzer = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
         }
 
@@ -35,20 +34,17 @@ namespace Service_TechCompass.Services
             if (student == null || student.TargetRoleId == null)
                 return (400, "Sinh viên chưa chọn nghề nghiệp mục tiêu.", null);
 
-            // 1. Tìm Lộ trình (TechPath) chuẩn cho Target Role này
             var techPath = await _context.TechPaths
                 .FirstOrDefaultAsync(tp => tp.TargetRoleId == student.TargetRoleId);
 
             if (techPath == null) return (404, "Chưa có lộ trình chuẩn cho nghề nghiệp này.", null);
 
-            // 2. Lấy tất cả kỹ năng (Nodes) của lộ trình này
             var nodes = await _context.SkillNodes
                 .Where(n => n.TechPathId == techPath.TechPathId)
                 .ToListAsync();
 
             int addedCount = 0;
 
-            // 3. Khởi tạo tiến độ cho sinh viên vào bảng roadmap_progress
             foreach (var node in nodes)
             {
                 bool exists = await _context.RoadmapProgresses
@@ -61,7 +57,7 @@ namespace Service_TechCompass.Services
                         ProgressId = Guid.NewGuid(),
                         StudentId = userId,
                         SkillNodeId = node.SkillNodeId,
-                        Status = "Not Started", // Trạng thái ban đầu
+                        Status = "Not Started",
                         CompletionPercent = 0,
                         UpdatedAt = DateTime.Now
                     };
@@ -89,7 +85,6 @@ namespace Service_TechCompass.Services
             if (node.ParentNodeId == null)
                 return (200, "Node gốc, không bị khóa.", true);
 
-            // Kiểm tra xem Node Cha đã được sinh viên "Completed" chưa
             var parentProgress = await _context.RoadmapProgresses
                 .FirstOrDefaultAsync(p => p.StudentId == userId && p.SkillNodeId == node.ParentNodeId);
 
@@ -103,18 +98,14 @@ namespace Service_TechCompass.Services
 
         public async Task<(int StatusCode, string Message, GenerateRoadmapResponseDto? Data)> RecalculateRoadmapAsync(Guid userId)
         {
-            // Xóa bỏ hoặc Archive các Node chưa học, giữ nguyên Node đã học (Tùy logic)
-            // Đơn giản nhất là chạy lại Generate để nạp bù các Node còn thiếu nếu TechPath có update
             return await GenerateRoadmapAsync(userId);
         }
 
         public async Task SyncProgressAfterAssessmentAsync(Guid userId, int skillNodeId, decimal totalQuizScore, decimal totalCodeScore)
         {
-            // 1. Lấy tiến độ hiện tại của sinh viên với Node này
             var progress = await _context.RoadmapProgresses
                 .FirstOrDefaultAsync(p => p.StudentId == userId && p.SkillNodeId == skillNodeId);
 
-            // Nếu sinh viên nhảy cóc làm test mà chưa tạo Roadmap, tự động tạo mới Progress
             if (progress == null)
             {
                 progress = new RoadmapProgress
@@ -127,8 +118,6 @@ namespace Service_TechCompass.Services
                 _context.RoadmapProgresses.Add(progress);
             }
 
-            // 2. Logic Quyết định (Pass/Fail)
-            // Giả sử điểm chuẩn để qua môn là: Quiz >= 5 VÀ Code >= 5
             bool isPassed = totalQuizScore >= 5.0m && totalCodeScore >= 5.0m;
 
             if (isPassed)
@@ -139,10 +128,7 @@ namespace Service_TechCompass.Services
             }
             else
             {
-                // Fail thì chuyển trạng thái sang Learning để yêu cầu học thêm tài liệu
                 progress.Status = "Learning";
-
-                // Tính % hoàn thành tượng trưng dựa trên tổng điểm (Max 20)
                 decimal totalScore = totalQuizScore + totalCodeScore;
                 progress.CompletionPercent = (int)((totalScore / 20.0m) * 100);
             }
@@ -151,12 +137,11 @@ namespace Service_TechCompass.Services
             await _context.SaveChangesAsync();
         }
 
-        // ==========================================
-        // GIAI ĐOẠN 4: KHỞI TẠO ROADMAP TỪ BÀI TEST BẰNG AI
-        // ==========================================
-        public async Task<(int StatusCode, string Message, GenerateRoadmapResponseDto? Data)> GenerateAiRoadmapFromSessionAsync(Guid userId, Guid sessionId)
+        // =========================================================
+        // CẬP NHẬT: LOGIC KIỂM TRA TRÁI NGÀNH VÀ YÊU CẦU XÁC NHẬN
+        // =========================================================
+        public async Task<(int StatusCode, string Message, object? Data)> GenerateAiRoadmapFromSessionAsync(Guid userId, Guid sessionId, bool confirmSwitch = false)
         {
-            // 1. TÌM SESSION (Bài test sinh viên vừa nộp) & TRUY XUẤT NHÁNH NGÀNH LIÊN QUAN
             var session = await _context.AssessmentSessions
                 .Include(s => s.SkillNode)
                     .ThenInclude(sn => sn.TechPath)
@@ -170,13 +155,18 @@ namespace Service_TechCompass.Services
 
             if (techPath == null || role == null) return (404, "Lỗi dữ liệu: Kỹ năng này chưa được map vào hệ thống lộ trình.", null);
 
-            // 2. GÁN TARGET ROLE MỚI CHO SINH VIÊN (Dựa vào bài test vừa làm)
             var student = await _context.Students.FirstOrDefaultAsync(s => s.StudentId == userId || s.UserId == userId);
             if (student == null) return (404, "Không tìm thấy thông tin sinh viên.", null);
 
+            // 1. KIỂM TRA TRÁI NGÀNH
+            if (student.TargetRoleId != null && student.TargetRoleId != role.TargetRoleId && !confirmSwitch)
+            {
+                return (202, $"Bài test này thuộc về lộ trình '{techPath.PathName}'. Bạn có muốn Cố vấn AI đổi định hướng nghề nghiệp của bạn sang ngành này không?", new { requiresConfirmation = true });
+            }
+
+            // 2. NẾU TRÙNG NGÀNH HOẶC ĐÃ ĐỒNG Ý ĐỔI NGÀNH -> CHẠY TIẾP LOGIC
             student.TargetRoleId = role.TargetRoleId;
 
-            // 3. ĐỔ TOÀN BỘ KHUNG ROADMAP VÀO BẢNG PROGRESS
             var nodes = await _context.SkillNodes.Where(n => n.TechPathId == techPath.TechPathId).ToListAsync();
             int addedCount = 0;
             foreach (var node in nodes)
@@ -198,13 +188,11 @@ namespace Service_TechCompass.Services
             }
             await _context.SaveChangesAsync();
 
-            // 4. ĐỒNG BỘ ĐIỂM BÀI TEST VÀO NODE TƯƠNG ỨNG TRONG LỘ TRÌNH VỪA TẠO
             decimal totalScore = session.TotalQuizScore + session.TotalCodeScore;
             var currentProgress = await _context.RoadmapProgresses.FirstOrDefaultAsync(p => p.StudentId == student.StudentId && p.SkillNodeId == session.SkillNodeId);
 
             if (currentProgress != null)
             {
-                // Logic chuẩn: Quiz >= 5 VÀ Code >= 5 thì MỚI PASS
                 if (session.TotalQuizScore >= 5.0m && session.TotalCodeScore >= 5.0m)
                 {
                     currentProgress.Status = "Completed";
@@ -220,7 +208,6 @@ namespace Service_TechCompass.Services
                 await _context.SaveChangesAsync();
             }
 
-            // 5. GỌI OPENAI ĐỂ PHÂN TÍCH VÀ ĐƯA RA LỜI KHUYÊN DỰA TRÊN NGHIỆP VỤ & LOGIC THỊ TRƯỜNG
             string aiAdvice = $"Đã kích hoạt Lộ trình {techPath.PathName}.";
             try
             {
@@ -236,7 +223,6 @@ namespace Service_TechCompass.Services
 
                 chatHistory.AddUserMessage(prompt);
 
-                // Gọi model OpenAI
                 var aiResponse = await _aiRoadmapAnalyzer.GetChatMessageContentAsync(chatHistory);
                 aiAdvice = aiResponse.ToString();
             }
