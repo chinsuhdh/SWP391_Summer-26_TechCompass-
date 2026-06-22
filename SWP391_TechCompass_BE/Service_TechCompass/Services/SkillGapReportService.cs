@@ -1,5 +1,4 @@
-﻿// src/Service_TechCompass/Services/SkillGapReportService.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,19 +6,18 @@ using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using UglyToad.PdfPig.Content;
-using UglyToad.PdfPig.Core;
-using UglyToad.PdfPig.Fonts.Standard14Fonts;
-using UglyToad.PdfPig.Writer;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 
 namespace Service_TechCompass.Services
 {
-    // ĐÃ THÊM: Class bọc dữ liệu để truyền được cả Summary và Danh sách môn học sang PDF
     public class SkillGapReportData
     {
-        public string TargetRoleName { get; set; }
-        public string LatentTalentSummary { get; set; }
-        public List<SkillGapItemDto> GapItems { get; set; }
+        // ĐÃ FIX CẢNH BÁO CS8618: Thêm giá trị mặc định
+        public string TargetRoleName { get; set; } = string.Empty;
+        public string LatentTalentSummary { get; set; } = string.Empty;
+        public List<SkillGapItemDto> GapItems { get; set; } = new List<SkillGapItemDto>();
     }
 
     public class SkillGapReportService : ISkillGapReportService
@@ -39,11 +37,9 @@ namespace Service_TechCompass.Services
                 return new SkillGapReportData { GapItems = new List<SkillGapItemDto>() };
             }
 
-            // 1. LẤY TÊN TARGET ROLE VÀ LỜI KHUYÊN TỪ AI
             var role = await _context.Roles.FindAsync(student.TargetRoleId);
             string targetRoleName = role != null ? role.RoleName : $"Role ID: {student.TargetRoleId}";
 
-            // Lấy nhận xét từ AI, nếu chưa có thì gán chuỗi mặc định
             string aiSummary = !string.IsNullOrWhiteSpace(student.LatentTalentSummary)
                                 ? student.LatentTalentSummary
                                 : "Hệ thống đang thu thập thêm dữ liệu để đưa ra nhận xét chính xác về bạn.";
@@ -79,7 +75,6 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            // ĐÃ SỬA: Trả về Object bọc thay vì chỉ trả về List
             return new SkillGapReportData
             {
                 TargetRoleName = targetRoleName,
@@ -88,27 +83,7 @@ namespace Service_TechCompass.Services
             };
         }
 
-        // HÀM HỖ TRỢ: Tự động xuống dòng cho đoạn văn dài trong PDF
-        private List<string> SplitTextIntoLines(string text, int maxCharsPerLine)
-        {
-            var words = text.Split(' ');
-            var lines = new List<string>();
-            var currentLine = "";
-
-            foreach (var word in words)
-            {
-                if ((currentLine + word).Length > maxCharsPerLine)
-                {
-                    lines.Add(currentLine.Trim());
-                    currentLine = "";
-                }
-                currentLine += word + " ";
-            }
-            if (!string.IsNullOrWhiteSpace(currentLine)) lines.Add(currentLine.Trim());
-            return lines;
-        }
-
-        public async Task<byte[]> GeneratePdfReportAsync(object reportData)
+        public Task<byte[]> GeneratePdfReportAsync(object reportData)
         {
             var wrapper = reportData as SkillGapReportData;
             if (wrapper == null || wrapper.GapItems == null || !wrapper.GapItems.Any())
@@ -118,82 +93,94 @@ namespace Service_TechCompass.Services
             string targetRoleName = wrapper.TargetRoleName;
             string aiSummary = wrapper.LatentTalentSummary;
 
-            PdfDocumentBuilder builder = new PdfDocumentBuilder();
-            PdfPageBuilder page = builder.AddPage(PageSize.A4);
+            QuestPDF.Settings.License = LicenseType.Community;
 
-            // ---------------------------------------------------------
-            // ĐÃ SỬA LỖI CRASH: Load Font Arial từ Windows hỗ trợ Unicode
-            // ---------------------------------------------------------
-            var font = builder.AddTrueTypeFont(System.IO.File.ReadAllBytes(@"C:\Windows\Fonts\arial.ttf"));
-            var fontBold = builder.AddTrueTypeFont(System.IO.File.ReadAllBytes(@"C:\Windows\Fonts\arialbd.ttf"));
-            var fontOblique = builder.AddTrueTypeFont(System.IO.File.ReadAllBytes(@"C:\Windows\Fonts\ariali.ttf"));
-            // ---------------------------------------------------------
-
-            // Vẽ Header & Ngữ cảnh Mục tiêu
-            page.AddText("TECH COMPASS - SKILL GAP ANALYSIS REPORT", 16, new PdfPoint(50, 750), fontBold);
-            page.AddText($"Generated Date: {DateTime.Now:yyyy-MM-dd HH:mm}", 10, new PdfPoint(50, 730), font);
-            page.AddText($"Target Role: {targetRoleName}", 12, new PdfPoint(50, 715), fontBold);
-            page.AddText("--------------------------------------------------------------------------------", 12, new PdfPoint(50, 700), font);
-
-            int currentY = 670;
-
-            // [MỤC 1] LỜI KHUYÊN TỪ HỆ THỐNG (AI SUMMARY)
-            page.AddText("1. AI Profile Summary (Talent & Strengths):", 14, new PdfPoint(50, currentY), fontBold);
-            currentY -= 20;
-
-            // Cắt đoạn văn thành nhiều dòng, mỗi dòng khoảng 85 ký tự để vừa khổ A4
-            var summaryLines = SplitTextIntoLines(aiSummary, 85);
-            foreach (var line in summaryLines)
+            var pdfBytes = Document.Create(container =>
             {
-                page.AddText(line, 11, new PdfPoint(50, currentY), font);
-                currentY -= 15;
-            }
-
-            currentY -= 15; // Khoảng cách giữa 2 phần
-
-            // [MỤC 2] DANH SÁCH KỸ NĂNG CÒN THIẾU
-            page.AddText("2. Missing & Improvement Areas:", 14, new PdfPoint(50, currentY), fontBold);
-            currentY -= 30;
-
-            var missingSkills = data.Where(d => d.CurrentScore < d.TargetScore)
-                                    .OrderByDescending(d => d.TargetScore - d.CurrentScore)
-                                    .ToList();
-
-            if (missingSkills.Any())
-            {
-                int index = 1;
-                foreach (var skill in missingSkills)
+                container.Page(page =>
                 {
-                    decimal gapSize = skill.TargetScore - skill.CurrentScore;
-                    string priority = gapSize >= 40 ? "HIGH" : gapSize >= 20 ? "MEDIUM" : "LOW";
+                    page.Size(PageSizes.A4);
+                    page.Margin(2, Unit.Centimetre);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Arial"));
 
-                    string line1 = $"{index}. {skill.NodeName} - Priority: {priority}";
-                    string line2 = $"    Current Skill Level: {skill.CurrentScore}% | Market Target: {skill.TargetScore}% -> Gap: {gapSize}%";
-                    string line3 = $"    Learning Link: http://localhost:5173/dashboard/learning?skill={Uri.EscapeDataString(skill.NodeName)}";
-
-                    page.AddText(line1, 12, new PdfPoint(50, currentY), fontBold);
-                    page.AddText(line2, 10, new PdfPoint(50, currentY - 15), font);
-                    page.AddText(line3, 10, new PdfPoint(50, currentY - 30), fontOblique);
-
-                    currentY -= 55;
-                    index++;
-
-                    if (currentY < 100)
+                    page.Header().Column(col =>
                     {
-                        page = builder.AddPage(PageSize.A4);
-                        currentY = 750;
-                    }
-                }
-            }
-            else
-            {
-                page.AddText("Excellent! You meet all the requirements for your Target Role.", 12, new PdfPoint(50, currentY), font);
-                currentY -= 30;
-            }
+                        col.Item().Text("TECH COMPASS - SKILL GAP ANALYSIS REPORT")
+                                  .FontSize(18).SemiBold().FontColor(Colors.Teal.Darken2);
 
-            page.AddText("Recommendation: Focus on HIGH priority skills. Access the Learning Hub links above to start.", 12, new PdfPoint(50, currentY - 20), fontBold);
+                        col.Item().Text($"Generated Date: {DateTime.Now:yyyy-MM-dd HH:mm}");
 
-            return builder.Build();
+                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
+                        col.Item().PaddingTop(5).Text($"Target Role: {targetRoleName}").FontSize(13).SemiBold();
+
+                        // ĐÃ FIX LỖI CS1929: Đưa PaddingVertical lên trước .LineHorizontal()
+                        col.Item().PaddingVertical(10).LineHorizontal(1).LineColor(Colors.Grey.Lighten2);
+                    });
+
+                    page.Content().Column(col =>
+                    {
+                        col.Spacing(15);
+
+                        col.Item().Text("1. AI Profile Summary (Talent & Strengths):")
+                                  .FontSize(14).SemiBold().FontColor(Colors.Green.Darken2);
+
+                        col.Item().Text(aiSummary).FontSize(11);
+
+                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
+                        col.Item().PaddingTop(10).Text("2. Missing & Improvement Areas:")
+                                  .FontSize(14).SemiBold().FontColor(Colors.Orange.Darken2);
+
+                        var missingSkills = data.Where(d => d.CurrentScore < d.TargetScore)
+                                                .OrderByDescending(d => d.TargetScore - d.CurrentScore)
+                                                .ToList();
+
+                        if (missingSkills.Any())
+                        {
+                            int index = 1;
+                            foreach (var skill in missingSkills)
+                            {
+                                decimal gapSize = skill.TargetScore - skill.CurrentScore;
+                                string priority = gapSize >= 40 ? "HIGH" : gapSize >= 20 ? "MEDIUM" : "LOW";
+                                string priorityColor = gapSize >= 40 ? Colors.Red.Medium : gapSize >= 20 ? Colors.Orange.Medium : Colors.Blue.Medium;
+
+                                col.Item().Background(Colors.Grey.Lighten4).Padding(10).Column(innerCol =>
+                                {
+                                    innerCol.Item().Text(txt =>
+                                    {
+                                        txt.Span($"{index}. {skill.NodeName} - Priority: ").SemiBold();
+                                        txt.Span(priority).SemiBold().FontColor(priorityColor);
+                                    });
+
+                                    innerCol.Item().Text($"Current Skill Level: {skill.CurrentScore}% | Market Target: {skill.TargetScore}% -> Gap: {gapSize}%");
+
+                                    innerCol.Item().Text($"Learning Link: http://localhost:5173/dashboard/learning?skill={Uri.EscapeDataString(skill.NodeName)}")
+                                                   .FontColor(Colors.Blue.Medium).Underline();
+                                });
+                                index++;
+                            }
+                        }
+                        else
+                        {
+                            col.Item().Text("Excellent! You meet all the requirements for your Target Role.").Italic();
+                        }
+
+                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
+                        col.Item().PaddingTop(20).Text("Recommendation: Focus on HIGH priority skills. Access the Learning Hub links above to start.")
+                                  .SemiBold();
+                    });
+
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" of ");
+                        x.TotalPages();
+                    });
+                });
+            }).GeneratePdf();
+
+            return Task.FromResult(pdfBytes);
         }
     }
 }
