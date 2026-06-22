@@ -19,6 +19,7 @@ namespace Repository_TechCompass.Repositories
         {
             return await _context.EPortfolios
                 .Include(p => p.GithubRepositories)
+                .Include(p => p.Student) 
                 .FirstOrDefaultAsync(p => p.StudentId == studentId);
         }
 

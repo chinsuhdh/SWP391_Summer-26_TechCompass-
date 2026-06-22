@@ -189,11 +189,16 @@ TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử d
             {
                 PortfolioId = entity.PortfolioId,
                 StudentId = entity.StudentId,
-                AiProfileSummary = entity.AiProfileSummary,
+
+                // SỬA DÒNG NÀY: Ưu tiên lấy nhận xét bảng điểm AI nếu có. 
+                // Nếu AiProfileSummary (tóm tắt portfolio) đang trống, hệ thống sẽ lấy LatentTalentSummary từ bảng Student
+                AiProfileSummary = !string.IsNullOrWhiteSpace(entity.AiProfileSummary)
+                                    ? entity.AiProfileSummary
+                                    : entity.Student?.LatentTalentSummary,
+
                 ShareableUrl = entity.ShareableUrl,
                 CreatedAt = entity.CreatedAt,
 
-                // ĐÃ FIX: Thêm kiểm tra Null cho danh sách GithubRepositories
                 Repositories = (entity.GithubRepositories ?? new List<GithubRepository>())
                     .Select(r => new GithubRepoDto
                     {
