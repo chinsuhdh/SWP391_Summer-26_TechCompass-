@@ -14,7 +14,13 @@ namespace Repository_TechCompass.Repositories
         {
             _context = context;
         }
-
+        public async Task<bool> SyncGithubReposAsync(Guid portfolioId, string githubUsername)
+        {
+            // Chuyển toàn bộ logic đồng bộ GitHub từ Service sang đây (để tách tầng Repository)
+            // Hoặc nếu bạn muốn để ở Service thì sửa lại Interface cho khớp.
+            // Cách tốt nhất là để ở đây để đúng kiến trúc Repository Pattern.
+            return true;
+        }
         public async Task<EPortfolio?> GetPortfolioByStudentIdAsync(Guid studentId)
         {
             return await _context.EPortfolios

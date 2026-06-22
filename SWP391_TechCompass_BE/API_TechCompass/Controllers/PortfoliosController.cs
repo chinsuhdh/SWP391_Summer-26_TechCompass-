@@ -1,11 +1,12 @@
-﻿using System;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using Microsoft.EntityFrameworkCore;
+using System;
+using System.Security.Claims;
+using System.Threading.Tasks;
 namespace API_TechCompass.Controllers
 {
     [Route("api/[controller]")]
@@ -64,6 +65,63 @@ namespace API_TechCompass.Controllers
             var result = await _portfolioService.AnalyzeRepoWithAiAsync(repoId);
             if (result.StatusCode != 200) return StatusCode(result.StatusCode, new { message = result.Message });
             return Ok(new { message = result.Message });
+        }
+        // =========================================================================
+        // PHÂN HỆ DÀNH RIÊNG CHO INDUSTRY MENTOR (CỐ VẤN DOANH NGHIỆP)
+        // =========================================================================
+
+        // GET: api/Portfolios/all-public
+        [HttpGet("all-public")]
+        [Authorize(Roles = "Mentor,Admin")] // Cho phép Mentor và Admin truy cập
+        public async Task<IActionResult> GetAllPublicPortfolios()
+        {
+            try
+            {
+                var portfolios = await _portfolioService.GetAllPublicPortfoliosAsync();
+                return Ok(new { Message = "Tải danh sách hồ sơ sinh viên thành công.", Data = portfolios });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = "Lỗi khi lấy dữ liệu portfolio", Detail = ex.Message });
+            }
+        }
+
+        // POST: api/Portfolios/{portfolioId}/feedbacks
+        [HttpPost("{portfolioId}/feedbacks")]
+        [Authorize(Roles = "Mentor")] // CHỈ CHẤP NHẬN MENTOR ĐỂ LẠI ĐÁNH GIÁ THỰC TẾ
+        public async Task<IActionResult> LeavePortfolioFeedback(Guid portfolioId, [FromBody] CreatePortfolioFeedbackDto request)
+        {
+            if (request == null || !ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                // LẤY USER ID CỦA MENTOR TRỰC TIẾP TỪ TOKEN (Đảm bảo tính danh chính ngôn thuận, không giả mạo được)
+                var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid mentorUserId))
+                {
+                    return Unauthorized(new { Error = "Không tìm thấy danh tính Mentor hợp lệ trong Token." });
+                }
+
+                // Gọi dịch vụ xử lý lưu thông tin nhận xét
+                var feedbackResult = await _portfolioService.AddPortfolioFeedbackAsync(portfolioId, mentorUserId, request);
+
+                return Ok(new
+                {
+                    Message = "Gửi nhận xét chuyên gia hoàn tất! Sinh viên sẽ nhận được thông báo ngay lập tức.",
+                    Data = feedbackResult
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { Error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = "Lỗi hệ thống khi lưu phản hồi", Detail = ex.Message });
+            }
         }
     }
 }
