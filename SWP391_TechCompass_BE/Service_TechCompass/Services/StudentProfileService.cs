@@ -1,11 +1,16 @@
-﻿using System.Text.Json;
+﻿// src/Service_TechCompass/Services/StudentProfileService.cs
+using System;
+using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
+using Service_TechCompass.Hubs;
 using Service_TechCompass.Interfaces;
 using UglyToad.PdfPig;
 
@@ -15,12 +20,17 @@ namespace Service_TechCompass.Services
     {
         private readonly IUserRepository _userRepo;
         private readonly IChatCompletionService _chatCompletionService;
+        private readonly IHubContext<RoadmapNotificationHub> _hubContext; // ĐÃ THÊM: SignalR Hub
 
-        // Inject thêm Kernel để gọi Gemini AI
-        public StudentProfileService(IUserRepository userRepo, Kernel kernel)
+        // ĐÃ THÊM: Inject IHubContext vào Constructor
+        public StudentProfileService(
+            IUserRepository userRepo,
+            Kernel kernel,
+            IHubContext<RoadmapNotificationHub> hubContext)
         {
             _userRepo = userRepo;
             _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            _hubContext = hubContext;
         }
 
         public Task<(int StatusCode, string Message, UserStudentProfileDto? Data)> GetProfileAsync(Guid userId)
@@ -47,20 +57,20 @@ namespace Service_TechCompass.Services
             return Task.FromResult<(int, string, UserStudentProfileDto?)>((200, "Lấy thông tin thành công.", profileData));
         }
 
-        
-
-        public Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request)
+        // ĐÃ SỬA: Đổi thành async Task để có thể await SignalR
+        public async Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request)
         {
             var student = _userRepo.GetStudentByUserId(userId);
             if (student == null)
             {
-                return Task.FromResult<(int, string)>((404, "Không tìm thấy hồ sơ sinh viên để cập nhật."));
+                return (404, "Không tìm thấy hồ sơ sinh viên để cập nhật.");
             }
 
+            // ĐÃ THÊM: Kiểm tra xem Target Role có bị thay đổi không
+            bool isRoleChanged = student.TargetRoleId != request.TargetRoleId;
+
             student.FullName = request.FullName;
-
             student.StudentCode = string.IsNullOrWhiteSpace(request.StudentCode) ? null : request.StudentCode.Trim();
-
             student.LatentTalentSummary = request.LatentTalentSummary;
             student.TargetRoleId = request.TargetRoleId;
             student.UpdatedAt = DateTime.Now;
@@ -69,16 +79,26 @@ namespace Service_TechCompass.Services
             {
                 _userRepo.UpdateStudent(student);
                 _userRepo.SaveChanges();
-                return Task.FromResult<(int, string)>((200, "Cập nhật hồ sơ thành công."));
+
+                // ĐÃ THÊM: Bắn tín hiệu Real-time nếu Role thay đổi
+                if (isRoleChanged)
+                {
+                    await _hubContext.Clients.Group($"roadmap_user_{userId}").SendAsync("TargetRoleChanged", new
+                    {
+                        message = "Định hướng nghề nghiệp đã thay đổi, hệ thống đang tự động cập nhật lại Lộ trình học tập."
+                    });
+                }
+
+                return (200, "Cập nhật hồ sơ thành công.");
             }
             catch (DbUpdateException ex)
             {
                 if (ex.InnerException != null && ex.InnerException.Message.Contains("UQ_students_student_code"))
                 {
-                    return Task.FromResult<(int, string)>((400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại."));
+                    return (400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại.");
                 }
 
-                return Task.FromResult<(int, string)>((500, "Lỗi hệ thống khi lưu dữ liệu. Vui lòng thử lại sau."));
+                return (500, "Lỗi hệ thống khi lưu dữ liệu. Vui lòng thử lại sau.");
             }
         }
 
