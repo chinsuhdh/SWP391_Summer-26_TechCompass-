@@ -9,6 +9,8 @@ using Service_TechCompass.Interfaces;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using Service_TechCompass.DTOs;
+using Service_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
 {
@@ -93,8 +95,7 @@ namespace Service_TechCompass.Services
             string targetRoleName = wrapper.TargetRoleName;
             string aiSummary = wrapper.LatentTalentSummary;
 
-            QuestPDF.Settings.License = LicenseType.Community;
-
+            QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
             var pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>

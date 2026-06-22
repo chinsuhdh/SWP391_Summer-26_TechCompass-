@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Repository_TechCompass;
-using Repository_TechCompass.Repositories;
 using Repository_TechCompass.Interfaces;
+using Repository_TechCompass.Repositories;
 using Service_TechCompass.Interfaces;
 using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
@@ -36,7 +36,6 @@ namespace API_TechCompass
             builder.Services.AddScoped<IMarketPulseRepository, MarketPulseRepository>();
 
             // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
-
             var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
             var geminiApiKey = geminiConfig["ApiKey"];
             var geminiModelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
@@ -82,6 +81,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<ISkillGapReportService, SkillGapReportService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
             builder.Services.AddScoped<IVirtualMentorService, VirtualMentorService>();
+            builder.Services.AddScoped<ICounselorService, CounselorService>();
 
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
@@ -100,7 +100,7 @@ namespace API_TechCompass
                 options.AddPolicy("AllowAll",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:5173") // CHỈ ĐỊNH ĐÚNG URL CỦA VITE REACT
+                        policy.WithOrigins("http://localhost:5173") // URL CỦA VITE REACT
                               .AllowAnyMethod()
                               .AllowAnyHeader()
                               .AllowCredentials(); // BẮT BUỘC PHẢI CÓ DÒNG NÀY CHO SIGNALR
