@@ -79,6 +79,12 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
                         var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                         string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề lý thuyết.");
 
+                        // XÓA MARKDOWN BLOCK NẾU CÓ
+                        if (aiRawText.Contains("```"))
+                        {
+                            aiRawText = aiRawText.Replace("```json", "").Replace("```", "").Trim();
+                        }
+
                         int startIndex = aiRawText.IndexOf('[');
                         int endIndex = aiRawText.LastIndexOf(']');
 
@@ -210,6 +216,12 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
             {
                 var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                 string aiRawText = response.ToString() ?? throw new Exception("Lỗi gọi AI để sinh đề bài.");
+
+                // XÓA MARKDOWN BLOCK NẾU CÓ
+                if (aiRawText.Contains("```"))
+                {
+                    aiRawText = aiRawText.Replace("```json", "").Replace("```", "").Trim();
+                }
 
                 int startIndex = aiRawText.IndexOf('{');
                 int endIndex = aiRawText.LastIndexOf('}');
@@ -566,6 +578,12 @@ Cấu trúc JSON bắt buộc:
                 var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                 string aiRawText = response.ToString();
 
+                // XÓA MARKDOWN BLOCK NẾU CÓ
+                if (aiRawText.Contains("```"))
+                {
+                    aiRawText = aiRawText.Replace("```json", "").Replace("```", "").Trim();
+                }
+
                 int startIndex = aiRawText.IndexOf('[');
                 int endIndex = aiRawText.LastIndexOf(']');
                 if (startIndex >= 0 && endIndex >= startIndex)
@@ -616,7 +634,7 @@ Cấu trúc JSON bắt buộc:
                 {
                     if (!nodesToKeep.Contains(session.SkillNodeId))
                     {
-                        // Gọi repo xóa session này (Hàm này cậu vừa thêm ở bước 1)
+                        // Gọi repo xóa session này
                         await _repository.DeleteAssessmentSessionAsync(session.SessionId);
                     }
                 }

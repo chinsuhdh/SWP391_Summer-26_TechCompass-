@@ -12,6 +12,8 @@ using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace Service_TechCompass.Services
 {
@@ -21,28 +23,32 @@ namespace Service_TechCompass.Services
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _config;
         private readonly Swp391CareerRoadmapContext _context;
-        private readonly ITelemetryService _telemetryService; // ĐÃ THÊM: Inject Telemetry (Channels Queue)
+        private readonly ITelemetryService _telemetryService;
+        private readonly IChatCompletionService _geminiService; // ĐÃ THÊM: Inject Semantic Kernel
 
         public MarketPulseService(
             IMarketPulseRepository repo,
             HttpClient httpClient,
             IConfiguration config,
             Swp391CareerRoadmapContext context,
-            ITelemetryService telemetryService) // ĐÃ THÊM
+            ITelemetryService telemetryService,
+            Kernel kernel) // ĐÃ THÊM: Kernel
         {
             _repo = repo;
             _httpClient = httpClient;
             _config = config;
             _context = context;
             _telemetryService = telemetryService;
+
+            // Lấy service Gemini từ cấu hình tập trung trong Program.cs
+            _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
         // ==========================================
-        // 1. AI JOB MATCHING (Giữ nguyên)
+        // 1. AI JOB MATCHING 
         // ==========================================
         public async Task<List<JobMatchDto>> GetMatchingJobsAsync(Guid studentId, JobFilterDto filter)
         {
-            // ... (Code logic match job của bạn giữ nguyên, tôi thu gọn để dễ nhìn) ...
             var student = await _repo.GetStudentWithPassedSkillsAsync(studentId);
             if (student == null) throw new Exception("Không tìm thấy sinh viên.");
 
@@ -83,7 +89,7 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            // KẾT HỢP DUAL-TIER: Ghi log User vừa lọc Job (Chạy cực nhanh qua Queue)
+            // Ghi log User vừa lọc Job 
             await _telemetryService.LogLearningHistoryAsync(
                 studentId: studentId,
                 progressId: Guid.Empty,
@@ -102,7 +108,7 @@ namespace Service_TechCompass.Services
         // ==========================================
         public async Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync()
         {
-            var watch = System.Diagnostics.Stopwatch.StartNew(); // Đo thời gian cào
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 string serpApiKey = _config["SerpApiConfig:ApiKey"]!;
@@ -175,9 +181,8 @@ namespace Service_TechCompass.Services
 
                 watch.Stop();
 
-                // KẾT HỢP DUAL-TIER: Hangfire chạy xong thì ném Event vào Queue để lưu log hệ thống
                 await _telemetryService.LogLearningHistoryAsync(
-                    studentId: Guid.Empty, // Hành động của Hệ thống, không phải của riêng User nào
+                    studentId: Guid.Empty,
                     progressId: Guid.Empty,
                     actionType: "SYSTEM_JOB_SCRAPED",
                     durationSeconds: (int)watch.Elapsed.TotalSeconds,
@@ -192,32 +197,37 @@ namespace Service_TechCompass.Services
             }
         }
 
+        // ==========================================
+        // 3. TRÍCH XUẤT KỸ NĂNG BẰNG AI
+        // ==========================================
         private async Task<List<SkillNode>> ExtractSkillsUsingAiAsync(string description, List<SkillNode> allNodes)
         {
-            // (Giữ nguyên logic gọi Gemini AI của bạn)
             if (string.IsNullOrWhiteSpace(description)) return new List<SkillNode>();
+
             string availableSkills = string.Join(", ", allNodes.Select(n => n.NodeName));
             string prompt = $@"Bạn là một hệ thống tự động. Dưới đây là danh sách các kỹ năng hệ thống có: [{availableSkills}].
 Nhiệm vụ: Đọc đoạn mô tả công việc sau và trích xuất TẤT CẢ các kỹ năng công nghệ có xuất hiện trong đoạn mô tả và trùng khớp (hoặc gần giống) với danh sách trên.
 ĐỊNH DẠNG TRẢ VỀ: Chỉ in ra tên các kỹ năng, ngăn cách nhau bằng DẤU PHẨY. Tuyệt đối KHÔNG có câu chào hỏi, KHÔNG có bullet point, KHÔNG giải thích.
 Ví dụ: C#, .NET Core, SQL Server
 Mô tả công việc: {description}";
-            string apiKey = _config["GeminiApiConfig:ApiKey"]!;
-            string baseUrl = _config["GeminiApiConfig:BaseUrl"]!;
+
             try
             {
-                var payload = new { contents = new[] { new { parts = new[] { new { text = prompt } } } } };
-                var response = await _httpClient.PostAsJsonAsync($"{baseUrl}?key={apiKey}", payload);
-                if (response.IsSuccessStatusCode)
-                {
-                    var responseData = await response.Content.ReadAsStringAsync();
-                    var geminiResponse = JsonSerializer.Deserialize<GeminiResponseDto>(responseData, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    string aiText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
-                    var extractedSkillNames = aiText.Split(',').Select(s => s.Trim().ToLower()).ToList();
-                    return allNodes.Where(n => extractedSkillNames.Contains(n.NodeName.ToLower())).ToList();
-                }
+                // SỬ DỤNG SEMANTIC KERNEL THAY VÌ HTTPCLIENT THỦ CÔNG
+                var chatHistory = new ChatHistory();
+                chatHistory.AddUserMessage(prompt);
+
+                var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
+                string aiText = response.ToString() ?? "";
+
+                var extractedSkillNames = aiText.Split(',').Select(s => s.Trim().ToLower()).ToList();
+                return allNodes.Where(n => extractedSkillNames.Contains(n.NodeName.ToLower())).ToList();
             }
-            catch { /* Fallback */ }
+            catch
+            {
+                /* Fallback */
+            }
+
             return new List<SkillNode>();
         }
 

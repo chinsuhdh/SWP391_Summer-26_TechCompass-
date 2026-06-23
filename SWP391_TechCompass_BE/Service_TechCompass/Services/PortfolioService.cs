@@ -81,6 +81,8 @@ namespace Service_TechCompass.Services
         public async Task<(int StatusCode, string Message)> SyncGithubReposAsync(Guid studentId, string githubUsername)
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
+            Console.WriteLine($"\n[BACKEND-SYNC] Bắt đầu đồng bộ GitHub cho username: '{githubUsername}' (StudentId: {studentId})"); // LOG BẮT ĐẦU
+
             var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
             if (portfolio == null)
             {
@@ -91,11 +93,23 @@ namespace Service_TechCompass.Services
             {
                 var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
                 var githubToken = _config["GithubConfig:PersonalAccessToken"];
-                if (!string.IsNullOrEmpty(githubToken)) github.Credentials = new Credentials(githubToken);
 
+                if (string.IsNullOrEmpty(githubToken))
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("[BACKEND-WARNING] Không tìm thấy GitHub PersonalAccessToken trong config. Hệ thống đang gọi API ẩn danh (Rất dễ bị Rate Limit 60 req/hour).");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    github.Credentials = new Credentials(githubToken);
+                }
+
+                Console.WriteLine("[BACKEND-SYNC] Đang gọi API GitHub kéo danh sách Repositories...");
                 var repos = await github.Repository.GetAllForUser(githubUsername);
-                int syncCount = 0;
+                Console.WriteLine($"[BACKEND-SYNC] Kéo thành công {repos.Count} repos từ GitHub. Bắt đầu lọc và lưu Database...");
 
+                int syncCount = 0;
                 var existingRepos = portfolio.GithubRepositories ?? new List<GithubRepository>();
 
                 foreach (var repo in repos)
@@ -107,10 +121,15 @@ namespace Service_TechCompass.Services
                         var readme = await github.Repository.Content.GetReadme(repo.Id);
                         readmeContent = readme.Content;
                     }
-                    catch (NotFoundException) { continue; }
+                    catch (NotFoundException)
+                    {
+                        // Không có readme thì bỏ qua repo này
+                        continue;
+                    }
 
                     if (string.IsNullOrWhiteSpace(readmeContent) || readmeContent.Length < 50) continue;
 
+                    // ... (Phần logic lưu Database của bạn giữ nguyên) ...
                     var dbRepo = existingRepos.FirstOrDefault(r => r.GithubUrl == repo.HtmlUrl);
 
                     if (dbRepo != null)
@@ -140,6 +159,7 @@ namespace Service_TechCompass.Services
                 }
 
                 watch.Stop();
+                Console.WriteLine($"[BACKEND-SYNC SUCCESS] Xử lý xong {syncCount} repos hợp lệ. Thời gian: {watch.Elapsed.TotalSeconds}s");
 
                 await _telemetryService.LogLearningHistoryAsync(
                     studentId: studentId,
@@ -150,11 +170,34 @@ namespace Service_TechCompass.Services
                 );
 
                 await _hubContext.Clients.All.SendAsync("SyncCompleted", studentId.ToString());
-
                 return (200, $"Đồng bộ thành công {syncCount} dự án chất lượng từ GitHub.");
+            }
+            catch (NotFoundException ex)
+            {
+                // Bắt lỗi nhập sai username GitHub
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[BACKEND-SYNC LỖI] Không tìm thấy tài khoản GitHub '{githubUsername}'. Chi tiết: {ex.Message}");
+                Console.ResetColor();
+                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, "Username không tồn tại.");
+                return (404, $"Không tìm thấy tài khoản GitHub: {githubUsername}");
+            }
+            catch (RateLimitExceededException ex)
+            {
+                // Bắt lỗi gọi quá nhiều lần bị GitHub chặn (thường xuyên xảy ra nếu thiếu Token)
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[BACKEND-SYNC LỖI] Bị GitHub API chặn do quá giới hạn Rate Limit. Chi tiết: {ex.Message}");
+                Console.ResetColor();
+                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, "Lỗi Rate Limit GitHub.");
+                return (429, "Hệ thống đang bị giới hạn lượt tải từ GitHub. Vui lòng thử lại sau.");
             }
             catch (Exception ex)
             {
+                // Bắt các lỗi Database, Network,...
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[BACKEND-SYNC CRITICAL LỖI] Lỗi hệ thống: {ex.Message}");
+                Console.WriteLine($"[STACK TRACE] {ex.StackTrace}"); // In ra dòng code gây lỗi
+                Console.ResetColor();
+
                 await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, ex.Message);
                 return (500, $"Lỗi khi kết nối GitHub: {ex.Message}");
             }

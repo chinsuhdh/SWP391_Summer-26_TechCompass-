@@ -1,4 +1,5 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿// src/Service_TechCompass/Services/AuthService.cs
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Google.Apis.Auth;
@@ -8,6 +9,9 @@ using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Service_TechCompass.Services
 {
@@ -146,13 +150,7 @@ namespace Service_TechCompass.Services
         {
             try
             {
-                // 1. Dùng thư viện Google để verify idToken nhận từ Frontend
-                var settings = new GoogleJsonWebSignature.ValidationSettings()
-                {
-                    // Tùy chọn: Để bảo mật tối đa, cậu có thể giới hạn chỉ chấp nhận token tạo ra từ Client ID của dự án
-                    // Audience = new List<string>() { _config["Google:ClientId"] } 
-                };
-
+                var settings = new GoogleJsonWebSignature.ValidationSettings() { };
                 var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
 
                 if (payload == null)
@@ -160,21 +158,19 @@ namespace Service_TechCompass.Services
                     return (401, "Google Token không hợp lệ.", string.Empty);
                 }
 
-                // 2. Kiểm tra xem user này đã tồn tại trong DB chưa
                 var user = _userRepo.GetUserByEmail(payload.Email);
 
                 if (user == null)
                 {
-                    // 3A. Nếu chưa có: Tự động đăng ký tài khoản mới cho user
                     user = new User
                     {
                         UserId = Guid.NewGuid(),
                         Email = payload.Email,
                         PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
                         Provider = "Google",
-                        IsActive = true, // Đăng nhập Google thì nghiễm nhiên email đã được xác thực
+                        IsActive = true,
                         CreatedAt = DateTime.Now,
-                        RoleId = 2, // Mặc định là Student
+                        RoleId = 2,
                     };
 
                     _userRepo.AddUser(user);
@@ -183,7 +179,7 @@ namespace Service_TechCompass.Services
                     {
                         StudentId = Guid.NewGuid(),
                         UserId = user.UserId,
-                        FullName = payload.Name, // Lấy tên thật từ tài khoản Google
+                        FullName = payload.Name,
                         UpdatedAt = DateTime.Now
                     };
 
@@ -192,7 +188,6 @@ namespace Service_TechCompass.Services
                 }
                 else
                 {
-                    // 3B. Nếu đã có: Kiểm tra trạng thái tài khoản
                     if (user.IsActive == false)
                     {
                         user.IsActive = true;
@@ -202,7 +197,6 @@ namespace Service_TechCompass.Services
                     }
                 }
 
-                // 4. Tạo JWT Token của hệ thống TechCompass và trả về cho Frontend
                 var token = GenerateJwtToken(user);
                 return (200, "Đăng nhập bằng Google thành công!", token);
             }
@@ -224,11 +218,25 @@ namespace Service_TechCompass.Services
 
             var student = _userRepo.GetStudentByUserId(user.UserId);
 
+            // BƯỚC 1: Dịch RoleId sang tên chuẩn
+            var roleName = user.RoleId switch
+            {
+                1 => "Admin",
+                2 => "Student",
+                3 => "Mentor",
+                4 => "Counselor",
+                _ => "User"
+            };
+
             var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                new Claim("RoleId", user.RoleId.ToString()),
+                new Claim("RoleId", user.RoleId.ToString()), 
+                
+                // BƯỚC 2: Nhúng chuẩn Role của ASP.NET Core vào JWT để fix triệt để lỗi 403
+                new Claim(ClaimTypes.Role, roleName),
+
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 

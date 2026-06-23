@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using Repository_TechCompass;
-using Service_TechCompass.DTOs;
-using Service_TechCompass.Interfaces;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using Repository_TechCompass;
+using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
+using Service_TechCompass.DTOs;
+using Service_TechCompass.Interfaces;
 using Service_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
@@ -79,7 +80,6 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            // ĐẨY VÀO QUEUE: Ghi nhận sinh viên vừa mở màn hình Skill Gap (Thống kê sự quan tâm)
             await _telemetryService.LogLearningHistoryAsync(
                 studentId: studentId,
                 progressId: Guid.Empty,
@@ -88,9 +88,42 @@ namespace Service_TechCompass.Services
                 details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
             );
 
+            // ==========================================
+            // ĐÃ BỔ SUNG LỆNH LƯU DATABASE TẠI ĐÂY
+            // ==========================================
+            try
+            {
+                DateTime today = DateTime.Now.Date;
+
+                var todayReport = await _context.SkillGapReports
+                    .FirstOrDefaultAsync(r => r.StudentId == studentId
+                                           && r.GeneratedAt != null
+                                           && r.GeneratedAt.Value.Date == today);
+
+                if (todayReport == null)
+                {
+                    var newReport = new SkillGapReport
+                    {
+                        ReportId = Guid.NewGuid(),
+                        StudentId = studentId,
+                        GeneratedAt = DateTime.Now,
+                        Summary = aiSummary,
+                        PdfUrl = null // Sẽ được cập nhật khi họ bấm nút Export
+                    };
+                    _context.SkillGapReports.Add(newReport);
+                    await _context.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Lỗi lưu Report]: {ex.Message}");
+                // Vẫn cho code tiếp tục chạy để không chết luồng hiển thị giao diện
+            }
+            // ==========================================
+
             return new SkillGapReportData
             {
-                StudentId = studentId, // Lưu lại phục vụ cho Tracking
+                StudentId = studentId,
                 TargetRoleName = targetRoleName,
                 LatentTalentSummary = aiSummary,
                 GapItems = resultList
