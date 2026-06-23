@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Octokit;
+using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
@@ -52,25 +53,29 @@ namespace Service_TechCompass.Services
             return MapToDto(portfolio);
         }
 
+        // FIX DỨT ĐIỂM: Đã xóa bỏ đoạn rác dư thừa lơ lửng do đóng ngoặc sai khi merge conflict
         public async Task<string> GenerateShareableUrlAsync(Guid studentId)
         {
-            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            if (portfolio == null)
-            {
-                portfolio = new EPortfolio
-                {
-                    PortfolioId = Guid.NewGuid(),
-                    StudentId = studentId,
-                    CreatedAt = DateTime.Now
-                };
-                await _portfolioRepo.CreatePortfolioAsync(portfolio);
-            }
+            var p = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId)
+                    ?? await _portfolioRepo.CreatePortfolioAsync(new EPortfolio { PortfolioId = Guid.NewGuid(), StudentId = studentId, CreatedAt = DateTime.Now });
 
-            string uniqueSlug = Guid.NewGuid().ToString("N").Substring(0, 8);
-            portfolio.ShareableUrl = $"https://techcompass.com/p/{uniqueSlug}";
+            p.ShareableUrl = $"https://techcompass.com/p/{Guid.NewGuid().ToString("N")[..8]}";
+            await _portfolioRepo.UpdatePortfolioAsync(p);
+            return p.ShareableUrl;
+        }
 
-            await _portfolioRepo.UpdatePortfolioAsync(portfolio);
-            return portfolio.ShareableUrl;
+        // FIX DỨT ĐIỂM: Cập nhật kiểu trả về Task<List<object>> theo đúng Interface mới của bạn Hoa
+        public async Task<List<object>> GetAllPublicPortfoliosAsync()
+        {
+            // TODO: Mentor Phân hệ quản lý - Bạn Hoa sẽ code logic nghiệp vụ ở đây sau
+            return await Task.FromResult(new List<object>());
+        }
+
+        // FIX DỨT ĐIỂM: Cập nhật kiểu trả về Task<PortfolioFeedbackResponseDto> theo đúng Interface mới của bạn Hoa
+        public async Task<PortfolioFeedbackResponseDto> AddPortfolioFeedbackAsync(Guid portfolioId, Guid mentorUserId, CreatePortfolioFeedbackDto dto)
+        {
+            // TODO: Mentor Phân hệ nhận xét bảng điểm - Bạn Hoa sẽ code logic nghiệp vụ ở đây sau
+            return await Task.FromResult(new PortfolioFeedbackResponseDto());
         }
 
         public async Task<(int StatusCode, string Message)> SyncGithubReposAsync(Guid studentId, string githubUsername)
@@ -144,7 +149,6 @@ namespace Service_TechCompass.Services
                     details: $"Đồng bộ thành công {syncCount} repos từ tài khoản GitHub: {githubUsername}"
                 );
 
-                // KÍCH HOẠT SIGNALR: Báo cho Frontend cập nhật UI
                 await _hubContext.Clients.All.SendAsync("SyncCompleted", studentId.ToString());
 
                 return (200, $"Đồng bộ thành công {syncCount} dự án chất lượng từ GitHub.");
@@ -249,7 +253,6 @@ TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử d
 
                     Console.WriteLine($"[SUCCESS] Đã lưu phân tích Gemini cho repo: {repo.RepoName}");
 
-                    // KÍCH HOẠT SIGNALR: Báo cho Frontend biết kết quả phân tích đã sẵn sàng
                     await _hubContext.Clients.All.SendAsync("AnalysisCompleted");
 
                     return (200, "AI phân tích Repository thành công.");
@@ -263,8 +266,9 @@ TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử d
             }
         }
 
-        private PortfolioDto MapToDto(EPortfolio entity)
+        private static PortfolioDto MapToDto(EPortfolio? entity)
         {
+            if (entity == null) return new PortfolioDto();
             return new PortfolioDto
             {
                 PortfolioId = entity.PortfolioId,
