@@ -1,46 +1,127 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Repository_TechCompass.Interfaces;
+using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
 
-namespace API_TechCompass.Controllers
+namespace Service_TechCompass.Services
 {
-    [ApiController]
-    [Route("api/v1/[controller]")]
-    public class AiTalentController : ControllerBase
+    public class AiTalentService : IAiTalentService
     {
-        private readonly IAiTalentService _aiTalentService;
+        private readonly IStudentRepository _studentRepository;
+        private readonly IChatCompletionService _codeAnalyzerService; 
 
-        public AiTalentController(IAiTalentService aiTalentService)
+        public AiTalentService(IStudentRepository studentRepository, Kernel kernel)
         {
-            _aiTalentService = aiTalentService;
+            _studentRepository = studentRepository;
+            _codeAnalyzerService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
-        // POST: api/v1/AiTalent/{studentId}/generate -> Chức năng 27 (Thường được gọi bởi CronJob hoặc Admin)
-        [HttpPost("{studentId}/generate")]
-        public async Task<IActionResult> GenerateTalentAnalysis(Guid studentId)
+        public async Task<TalentAnalysisDto> GenerateLatentTalentAsync(Guid studentId)
         {
+            var student = await _studentRepository.GetStudentWithAssessmentsAsync(studentId);
+            if (student == null) throw new Exception("Không tìm thấy sinh viên.");
+
+            // 1. Lấy dữ liệu cũ (từ PDF hoặc lần phân tích trước)
+            string existingSummary = student.LatentTalentSummary ?? "Chưa có đánh giá ban đầu.";
+
+            // 2. Lấy dữ liệu code thực chiến mới nhất
+            var codingPatterns = student.SkillAssessments
+                                        .Select(a => a.CodingPatternSnapshot)
+                                        .Where(p => !string.IsNullOrEmpty(p))
+                                        .ToList();
+
+            string aiGeneratedTalent;
+
+            if (!codingPatterns.Any())
+            {
+                // Nếu không có bài test nào, báo cáo không cập nhật thêm
+                return new TalentAnalysisDto
+                {
+                    StudentId = student.StudentId,
+                    LatentTalentSummary = existingSummary
+                };
+            }
+
+            // 3. Chuẩn bị Prompt tổng hợp
+            string patterns = string.Join("\n- ", codingPatterns);
+
+            var chatHistory = new ChatHistory();
+
+            chatHistory.AddSystemMessage(@"Bạn là một Senior Software Architect kiêm Mentor hướng nghiệp. Nhiệm vụ của bạn là đánh giá sự tiến bộ của sinh viên IT. 
+Bạn sẽ nhận được 'Đánh giá quá khứ' và 'Lịch sử code thực tế' gần đây. 
+Hãy tổng hợp, so sánh và đưa ra một ĐÁNH GIÁ CẬP NHẬT ngắn gọn (3-5 câu), chỉ ra sự tiến bộ, điểm mạnh cốt lõi và điều chỉnh định hướng nghề nghiệp nếu cần. 
+Trực diện, chuyên nghiệp, KHÔNG dùng markdown định dạng phức tạp.");
+
+            string prompt = $@"
+[Đánh giá quá khứ]:
+{existingSummary}
+
+[Lịch sử code thực tế gần đây]:
+- {patterns}
+
+Dựa trên dữ liệu trên, hãy viết lại bản tóm tắt năng lực tiềm ẩn (Latent Talent Summary) phiên bản MỚI NHẤT. Đừng lặp lại nguyên văn đánh giá cũ, hãy viết tiếp câu chuyện phát triển của sinh viên.";
+
+            chatHistory.AddUserMessage(prompt);
+
             try
             {
-                var result = await _aiTalentService.GenerateLatentTalentAsync(studentId);
-                return Ok(new { message = "AI Assessment hoàn tất", data = result });
+                // 4. Gọi AI để sinh ra bản đánh giá tiến hóa
+                var response = await _codeAnalyzerService.GetChatMessageContentAsync(chatHistory);
+                aiGeneratedTalent = response.ToString() ?? "";
+
+                if (string.IsNullOrWhiteSpace(aiGeneratedTalent))
+                {
+                    throw new Exception("AI trả về kết quả rỗng.");
+                }
             }
             catch (Exception ex)
             {
-                return BadRequest(new { error = ex.Message });
+                // FALLBACK: Nếu AI lỗi, GIỮ NGUYÊN data cũ, không ghi đè câu báo lỗi vào DB
+                Console.WriteLine($"[LỖI AI TALENT EVOLUTION]: {ex.Message}");
+                return new TalentAnalysisDto
+                {
+                    StudentId = student.StudentId,
+                    LatentTalentSummary = existingSummary
+                };
             }
+
+            // 5. Cập nhật Database với phiên bản mới
+            student.LatentTalentSummary = aiGeneratedTalent;
+            await _studentRepository.UpdateStudentAsync(student);
+
+            return new TalentAnalysisDto
+            {
+                StudentId = student.StudentId,
+                LatentTalentSummary = student.LatentTalentSummary
+            };
         }
 
-        // GET: api/v1/AiTalent/{studentId} -> Chức năng 28 (Client/Web gọi để hiển thị cho sinh viên)
-        [HttpGet("{studentId}")]
-        public async Task<IActionResult> GetTalentAnalysis(Guid studentId)
+        public async Task<TalentAnalysisDto> GetTalentAnalysisAsync(Guid studentId)
         {
-            try
+            var student = await _studentRepository.GetStudentByIdAsync(studentId);
+            if (student == null) throw new Exception("Không tìm thấy sinh viên.");
+
+            return new TalentAnalysisDto
             {
-                var result = await _aiTalentService.GetTalentAnalysisAsync(studentId);
-                return Ok(result);
-            }
-            catch (Exception ex)
+                StudentId = student.StudentId,
+                LatentTalentSummary = student.LatentTalentSummary ?? "Hệ thống đang chờ thêm dữ liệu để phân tích năng lực của bạn."
+            };
+        }
+
+        public async Task GenerateLatentTalentForAllStudentsAsync()
+        {
+            var allStudents = await _studentRepository.GetAllStudentsAsync();
+            foreach (var student in allStudents)
             {
-                return NotFound(new { error = ex.Message });
+                try
+                {
+                    await GenerateLatentTalentAsync(student.StudentId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[JOB ERROR] Lỗi phân tích tự động cho student {student.StudentId}: {ex.Message}");
+                }
             }
         }
     }

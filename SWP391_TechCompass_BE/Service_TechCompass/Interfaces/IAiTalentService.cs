@@ -6,5 +6,7 @@ namespace Service_TechCompass.Interfaces
     {
         Task<TalentAnalysisDto> GenerateLatentTalentAsync(Guid studentId);
         Task<TalentAnalysisDto> GetTalentAnalysisAsync(Guid studentId);
+
+        Task GenerateLatentTalentForAllStudentsAsync();
     }
 }

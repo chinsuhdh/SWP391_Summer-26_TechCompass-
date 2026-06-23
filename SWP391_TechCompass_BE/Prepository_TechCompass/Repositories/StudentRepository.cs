@@ -30,5 +30,10 @@ namespace Repository_TechCompass.Repositories
             _context.Students.Update(student);
             await _context.SaveChangesAsync();
         }
+
+        public async Task<List<Student>> GetAllStudentsAsync()
+        {
+            return await _context.Students.ToListAsync();
+        }
     }
 }

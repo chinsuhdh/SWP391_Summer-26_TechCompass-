@@ -9,19 +9,20 @@ namespace Service_TechCompass.Services
     public class AiTalentService : IAiTalentService
     {
         private readonly IStudentRepository _studentRepository;
-        private readonly IChatCompletionService _codeAnalyzerService; // Sử dụng OpenAI
+        private readonly IChatCompletionService _codeAnalyzerService;
 
         public AiTalentService(IStudentRepository studentRepository, Kernel kernel)
         {
             _studentRepository = studentRepository;
-            // Gọi đúng ServiceId đã đăng ký trong Program.cs
-            _codeAnalyzerService = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
+            _codeAnalyzerService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
         public async Task<TalentAnalysisDto> GenerateLatentTalentAsync(Guid studentId)
         {
             var student = await _studentRepository.GetStudentWithAssessmentsAsync(studentId);
             if (student == null) throw new Exception("Không tìm thấy sinh viên.");
+
+            string existingSummary = student.LatentTalentSummary ?? "Chưa có đánh giá ban đầu.";
 
             var codingPatterns = student.SkillAssessments
                                         .Select(a => a.CodingPatternSnapshot)
@@ -32,29 +33,51 @@ namespace Service_TechCompass.Services
 
             if (!codingPatterns.Any())
             {
-                aiGeneratedTalent = "Chưa có đủ dữ liệu từ các bài test để AI có thể phân tích tài năng tiềm ẩn.";
+                return new TalentAnalysisDto
+                {
+                    StudentId = student.StudentId,
+                    LatentTalentSummary = existingSummary
+                };
             }
-            else
+
+            string patterns = string.Join("\n- ", codingPatterns);
+
+            var chatHistory = new ChatHistory();
+
+            chatHistory.AddSystemMessage(@"Bạn là một Senior Software Architect kiêm Mentor hướng nghiệp. Nhiệm vụ của bạn là đánh giá sự tiến bộ của sinh viên IT. 
+Bạn sẽ nhận được 'Đánh giá quá khứ' và 'Lịch sử code thực tế' gần đây. 
+Hãy tổng hợp, so sánh và đưa ra một ĐÁNH GIÁ CẬP NHẬT ngắn gọn (3-5 câu), chỉ ra sự tiến bộ, điểm mạnh cốt lõi và điều chỉnh định hướng nghề nghiệp nếu cần. 
+Trực diện, chuyên nghiệp, KHÔNG dùng markdown định dạng phức tạp.");
+
+            string prompt = $@"
+[Đánh giá quá khứ]:
+{existingSummary}
+
+[Lịch sử code thực tế gần đây]:
+- {patterns}
+
+Dựa trên dữ liệu trên, hãy viết lại bản tóm tắt năng lực tiềm ẩn (Latent Talent Summary) phiên bản MỚI NHẤT. Đừng lặp lại nguyên văn đánh giá cũ, hãy viết tiếp câu chuyện phát triển của sinh viên.";
+
+            chatHistory.AddUserMessage(prompt);
+
+            try
             {
-                string patterns = string.Join("\n- ", codingPatterns);
+                var response = await _codeAnalyzerService.GetChatMessageContentAsync(chatHistory);
+                aiGeneratedTalent = response.ToString() ?? "";
 
-                var chatHistory = new ChatHistory();
-                // System prompt cho OpenAI cần chi tiết và khắt khe hơn
-                chatHistory.AddSystemMessage("Bạn là một Senior Software Architect. Nhiệm vụ của bạn là đọc các coding patterns này và xác định thiên hướng (Latent Talent) của sinh viên (VD: System Design, Database Optimization, UI/UX). Trả lời ngắn gọn, trực diện, đi thẳng vào vấn đề kỹ thuật.");
-
-                string prompt = $"Dựa vào các lịch sử làm bài và pattern code sau của sinh viên phần mềm, hãy phân tích ngắn gọn (khoảng 3-4 câu) về tài năng tiềm ẩn, tư duy logic và định hướng vai trò phù hợp nhất:\n- {patterns}";
-                chatHistory.AddUserMessage(prompt);
-
-                try
+                if (string.IsNullOrWhiteSpace(aiGeneratedTalent))
                 {
-                    // Thực thi với GPT-4o-mini
-                    var response = await _codeAnalyzerService.GetChatMessageContentAsync(chatHistory);
-                    aiGeneratedTalent = response.ToString() ?? "Không thể phân tích dữ liệu lúc này, vui lòng thử lại sau.";
+                    throw new Exception("AI trả về kết quả rỗng.");
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LỖI AI TALENT EVOLUTION]: {ex.Message}");
+                return new TalentAnalysisDto
                 {
-                    aiGeneratedTalent = $"Lỗi khi kết nối với AI Engine: {ex.Message}";
-                }
+                    StudentId = student.StudentId,
+                    LatentTalentSummary = existingSummary
+                };
             }
 
             student.LatentTalentSummary = aiGeneratedTalent;
@@ -75,8 +98,24 @@ namespace Service_TechCompass.Services
             return new TalentAnalysisDto
             {
                 StudentId = student.StudentId,
-                LatentTalentSummary = student.LatentTalentSummary ?? "AI chưa phân tích xong dữ liệu của bạn."
+                LatentTalentSummary = student.LatentTalentSummary ?? "Hệ thống đang chờ thêm dữ liệu để phân tích năng lực của bạn."
             };
+        }
+
+        public async Task GenerateLatentTalentForAllStudentsAsync()
+        {
+            var allStudents = await _studentRepository.GetAllStudentsAsync();
+            foreach (var student in allStudents)
+            {
+                try
+                {
+                    await GenerateLatentTalentAsync(student.StudentId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[JOB ERROR] Lỗi phân tích tự động cho student {student.StudentId}: {ex.Message}");
+                }
+            }
         }
     }
 }
