@@ -5,7 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using Microsoft.EntityFrameworkCore;
+using Hangfire; // ĐÃ THÊM: Dùng cho tiến trình nền
+
 namespace API_TechCompass.Controllers
 {
     [Route("api/[controller]")]
@@ -13,10 +14,13 @@ namespace API_TechCompass.Controllers
     public class PortfoliosController : ControllerBase
     {
         private readonly IPortfolioService _portfolioService;
+        private readonly IBackgroundJobClient _backgroundJobClient; // ĐÃ THÊM: Sử dụng Interface chuẩn của Hangfire
 
-        public PortfoliosController(IPortfolioService portfolioService)
+        // ĐÃ THÊM: Tiêm IBackgroundJobClient vào Constructor
+        public PortfoliosController(IPortfolioService portfolioService, IBackgroundJobClient backgroundJobClient)
         {
             _portfolioService = portfolioService;
+            _backgroundJobClient = backgroundJobClient;
         }
 
         // Task 44: Lấy Portfolio của sinh viên đang login
@@ -47,23 +51,27 @@ namespace API_TechCompass.Controllers
 
         // Task 46, 47, 48: Đồng bộ GitHub
         [HttpPost("{studentId}/sync-github")]
-        public async Task<IActionResult> SyncGithub(Guid studentId, [FromBody] SyncGithubRequestDto request)
+        public IActionResult SyncGithub(Guid studentId, [FromBody] SyncGithubRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.GithubUsername))
                 return BadRequest(new { message = "Username GitHub không được để trống." });
 
-            var result = await _portfolioService.SyncGithubReposAsync(studentId, request.GithubUsername);
-            if (result.StatusCode != 200) return StatusCode(result.StatusCode, new { message = result.Message });
-            return Ok(new { message = result.Message });
+            // ĐÃ SỬA: Gọi biến _backgroundJobClient thay vì gọi class tĩnh
+            _backgroundJobClient.Enqueue<IPortfolioService>(service => service.SyncGithubReposAsync(studentId, request.GithubUsername));
+
+            // Trả về cho Frontend ngay lập tức
+            return Ok(new { message = "Hệ thống đang tiến hành tải và phân tích dự án GitHub của bạn dưới nền. Quá trình này có thể mất vài phút. Vui lòng quay lại kiểm tra sau!" });
         }
 
         // Task 49, 50: Phân tích dự án bằng AI
         [HttpPost("repos/{repoId}/analyze")]
-        public async Task<IActionResult> AnalyzeRepository(Guid repoId)
+        public IActionResult AnalyzeRepository(Guid repoId)
         {
-            var result = await _portfolioService.AnalyzeRepoWithAiAsync(repoId);
-            if (result.StatusCode != 200) return StatusCode(result.StatusCode, new { message = result.Message });
-            return Ok(new { message = result.Message });
+            // ĐÃ SỬA: Gọi biến _backgroundJobClient thay vì gọi class tĩnh
+            _backgroundJobClient.Enqueue<IPortfolioService>(service => service.AnalyzeRepoWithAiAsync(repoId));
+
+            // Trả về ngay lập tức
+            return Ok(new { message = "Yêu cầu AI phân tích Repository đã được đưa vào tiến trình chạy ngầm. Quá trình này sẽ hoàn tất sau ít phút." });
         }
     }
 }

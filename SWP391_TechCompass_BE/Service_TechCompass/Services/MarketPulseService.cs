@@ -20,21 +20,29 @@ namespace Service_TechCompass.Services
         private readonly IMarketPulseRepository _repo;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _config;
-        private readonly Swp391CareerRoadmapContext _context; // Inject DB Context để query bảng mới
+        private readonly Swp391CareerRoadmapContext _context;
+        private readonly ITelemetryService _telemetryService; // ĐÃ THÊM: Inject Telemetry (Channels Queue)
 
-        public MarketPulseService(IMarketPulseRepository repo, HttpClient httpClient, IConfiguration config, Swp391CareerRoadmapContext context)
+        public MarketPulseService(
+            IMarketPulseRepository repo,
+            HttpClient httpClient,
+            IConfiguration config,
+            Swp391CareerRoadmapContext context,
+            ITelemetryService telemetryService) // ĐÃ THÊM
         {
             _repo = repo;
             _httpClient = httpClient;
             _config = config;
             _context = context;
+            _telemetryService = telemetryService;
         }
 
         // ==========================================
-        // 1. AI JOB MATCHING
+        // 1. AI JOB MATCHING (Giữ nguyên)
         // ==========================================
         public async Task<List<JobMatchDto>> GetMatchingJobsAsync(Guid studentId, JobFilterDto filter)
         {
+            // ... (Code logic match job của bạn giữ nguyên, tôi thu gọn để dễ nhìn) ...
             var student = await _repo.GetStudentWithPassedSkillsAsync(studentId);
             if (student == null) throw new Exception("Không tìm thấy sinh viên.");
 
@@ -46,31 +54,21 @@ namespace Service_TechCompass.Services
 
             int skip = (filter.Page - 1) * filter.PageSize;
             var jobs = await _repo.GetJobPostingsAsync(filter.Keyword, filter.SourcePlatform, skip, filter.PageSize);
-
             var result = new List<JobMatchDto>();
 
             foreach (var job in jobs)
             {
                 var jobSkills = job.SkillNodes.Select(s => s.NodeName).ToList();
 
-                // ---------------------------------------------------------
-                // THÊM ĐOẠN NÀY: LỌC THEO KỸ NĂNG USER CHỌN TỪ GIAO DIỆN
-                // ---------------------------------------------------------
                 if (filter.Skills != null && filter.Skills.Any())
                 {
-                    // Nếu Job này không chứa BẤT KỲ kỹ năng nào user đang filter -> Bỏ qua
-                    if (!jobSkills.Intersect(filter.Skills, StringComparer.OrdinalIgnoreCase).Any())
-                    {
-                        continue;
-                    }
+                    if (!jobSkills.Intersect(filter.Skills, StringComparer.OrdinalIgnoreCase).Any()) continue;
                 }
 
                 var matched = jobSkills.Intersect(mySkills, StringComparer.OrdinalIgnoreCase).ToList();
                 var missing = jobSkills.Except(mySkills, StringComparer.OrdinalIgnoreCase).ToList();
-
                 decimal matchPercent = jobSkills.Count > 0 ? (decimal)matched.Count / jobSkills.Count * 100 : 0;
 
-                // Áp dụng bộ lọc MinMatch từ giao diện (Thanh gạt %)
                 if (filter.MinMatch > 0 && matchPercent < filter.MinMatch) continue;
 
                 result.Add(new JobMatchDto
@@ -85,6 +83,15 @@ namespace Service_TechCompass.Services
                 });
             }
 
+            // KẾT HỢP DUAL-TIER: Ghi log User vừa lọc Job (Chạy cực nhanh qua Queue)
+            await _telemetryService.LogLearningHistoryAsync(
+                studentId: studentId,
+                progressId: Guid.Empty,
+                actionType: "FILTER_JOB_MARKET",
+                durationSeconds: 0,
+                details: $"Sinh viên vừa tìm kiếm job với từ khóa '{filter.Keyword}'"
+            );
+
             return filter.SortBy == "match"
                 ? result.OrderByDescending(x => x.MatchPercentage).ToList()
                 : result.OrderByDescending(x => x.PostingId).ToList();
@@ -95,6 +102,7 @@ namespace Service_TechCompass.Services
         // ==========================================
         public async Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync()
         {
+            var watch = System.Diagnostics.Stopwatch.StartNew(); // Đo thời gian cào
             try
             {
                 string serpApiKey = _config["SerpApiConfig:ApiKey"]!;
@@ -103,48 +111,36 @@ namespace Service_TechCompass.Services
                 var allRoles = await _context.TargetCareerRoles.Select(r => r.RoleName).ToListAsync();
                 if (!allRoles.Any()) allRoles = new List<string> { "Software Engineer" };
 
-                // [FIX LỖI CÀO DỮ LIỆU RỖNG Ở VN]: Thay đổi cách sinh từ khóa phù hợp với Google VN
                 var dynamicKeywords = new List<string>();
                 foreach (var role in allRoles)
                 {
-                    // Lọc bỏ cụm từ dài dòng nếu có, ví dụ "Backend Developer Java..." -> "Backend Developer"
                     string shortRole = role.Split('(')[0].Split('-')[0].Trim();
-
-                    dynamicKeywords.Add(shortRole); // Vd: "Frontend Developer"
-                    dynamicKeywords.Add($"Tuyển dụng {shortRole}"); // Vd: "Tuyển dụng Frontend Developer"
-                    dynamicKeywords.Add($"Việc làm {shortRole}"); // Vd: "Việc làm Frontend Developer"
+                    dynamicKeywords.Add(shortRole);
+                    dynamicKeywords.Add($"Tuyển dụng {shortRole}");
+                    dynamicKeywords.Add($"Việc làm {shortRole}");
                 }
 
-                // Chọn ngẫu nhiên 1 từ khóa
                 string query = dynamicKeywords[new Random().Next(dynamicKeywords.Count)];
-
-                // [FIX LỖI LOCATION]: Trỏ đích danh vào các IT Hub của VN để Google Jobs dễ bắt kết quả hơn
                 var locations = new[] { "Ho Chi Minh City, Vietnam", "Hanoi, Vietnam", "Da Nang, Vietnam", "Vietnam" };
                 string location = locations[new Random().Next(locations.Length)];
 
-                // Tạm bỏ tham số hl=vi để tránh Google lọc mất các Job tiếng Anh (Rất phổ biến ở VN)
                 string requestUrl = $"{serpBaseUrl}?engine=google_jobs&q={Uri.EscapeDataString(query)}&location={Uri.EscapeDataString(location)}&gl=vn&api_key={serpApiKey}";
 
                 var response = await _httpClient.GetAsync(requestUrl);
-                if (!response.IsSuccessStatusCode)
-                {
-                    return (500, "Lỗi khi gọi API cào dữ liệu từ SerpApi.");
-                }
+                if (!response.IsSuccessStatusCode) return (500, "Lỗi khi gọi API cào dữ liệu từ SerpApi.");
 
                 var jsonResponse = await response.Content.ReadAsStringAsync();
                 var serpData = JsonSerializer.Deserialize<SerpApiResponseDto>(jsonResponse);
 
                 if (serpData?.JobsResults == null || !serpData.JobsResults.Any())
                 {
-                    Console.WriteLine($"[CẢNH BÁO] SerpApi trả về rỗng. Query: '{query}', Location: '{location}'.");
-                    return (404, $"Không tìm thấy việc làm mới cho từ khóa '{query}' tại '{location}'. Vui lòng thử lại lần nữa!");
+                    return (404, $"Không tìm thấy việc làm mới cho từ khóa '{query}' tại '{location}'.");
                 }
 
                 var allNodes = await _repo.GetAllSkillNodesAsync();
                 var trendsToSave = new List<TrendAnalysis>();
                 int newJobsCount = 0;
 
-                // Tăng số lượng cào lên 10 để bạn dễ test hơn
                 foreach (var scrapedJob in serpData.JobsResults.Take(10))
                 {
                     var job = new JobPosting
@@ -162,7 +158,6 @@ namespace Service_TechCompass.Services
                     foreach (var node in matchedNodes)
                     {
                         job.SkillNodes.Add(node);
-
                         trendsToSave.Add(new TrendAnalysis
                         {
                             SkillNodeId = node.SkillNodeId,
@@ -176,10 +171,18 @@ namespace Service_TechCompass.Services
                     newJobsCount++;
                 }
 
-                if (trendsToSave.Any())
-                {
-                    await _repo.SaveTrendAnalysisAsync(trendsToSave);
-                }
+                if (trendsToSave.Any()) await _repo.SaveTrendAnalysisAsync(trendsToSave);
+
+                watch.Stop();
+
+                // KẾT HỢP DUAL-TIER: Hangfire chạy xong thì ném Event vào Queue để lưu log hệ thống
+                await _telemetryService.LogLearningHistoryAsync(
+                    studentId: Guid.Empty, // Hành động của Hệ thống, không phải của riêng User nào
+                    progressId: Guid.Empty,
+                    actionType: "SYSTEM_JOB_SCRAPED",
+                    durationSeconds: (int)watch.Elapsed.TotalSeconds,
+                    details: $"CronJob cào thành công {newJobsCount} công việc cho nhóm ngành '{query}' tại '{location}'."
+                );
 
                 return (200, $"Cào thành công {newJobsCount} công việc cho nhóm ngành '{query}' tại '{location}'.");
             }
@@ -189,42 +192,32 @@ namespace Service_TechCompass.Services
             }
         }
 
-        // ==========================================
-        // CÁC HÀM CÒN LẠI GIỮ NGUYÊN BÊN DƯỚI ...
-        // ==========================================
-
         private async Task<List<SkillNode>> ExtractSkillsUsingAiAsync(string description, List<SkillNode> allNodes)
         {
+            // (Giữ nguyên logic gọi Gemini AI của bạn)
             if (string.IsNullOrWhiteSpace(description)) return new List<SkillNode>();
-
             string availableSkills = string.Join(", ", allNodes.Select(n => n.NodeName));
-
             string prompt = $@"Bạn là một hệ thống tự động. Dưới đây là danh sách các kỹ năng hệ thống có: [{availableSkills}].
 Nhiệm vụ: Đọc đoạn mô tả công việc sau và trích xuất TẤT CẢ các kỹ năng công nghệ có xuất hiện trong đoạn mô tả và trùng khớp (hoặc gần giống) với danh sách trên.
 ĐỊNH DẠNG TRẢ VỀ: Chỉ in ra tên các kỹ năng, ngăn cách nhau bằng DẤU PHẨY. Tuyệt đối KHÔNG có câu chào hỏi, KHÔNG có bullet point, KHÔNG giải thích.
 Ví dụ: C#, .NET Core, SQL Server
 Mô tả công việc: {description}";
-
             string apiKey = _config["GeminiApiConfig:ApiKey"]!;
             string baseUrl = _config["GeminiApiConfig:BaseUrl"]!;
-
             try
             {
                 var payload = new { contents = new[] { new { parts = new[] { new { text = prompt } } } } };
                 var response = await _httpClient.PostAsJsonAsync($"{baseUrl}?key={apiKey}", payload);
-
                 if (response.IsSuccessStatusCode)
                 {
                     var responseData = await response.Content.ReadAsStringAsync();
                     var geminiResponse = JsonSerializer.Deserialize<GeminiResponseDto>(responseData, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     string aiText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "";
-
                     var extractedSkillNames = aiText.Split(',').Select(s => s.Trim().ToLower()).ToList();
                     return allNodes.Where(n => extractedSkillNames.Contains(n.NodeName.ToLower())).ToList();
                 }
             }
             catch { /* Fallback */ }
-
             return new List<SkillNode>();
         }
 
@@ -232,7 +225,6 @@ Mô tả công việc: {description}";
         {
             var fromDate = DateTime.Now.AddDays(-days);
             var rawTrends = await _repo.GetTrendsForChartAsync(fromDate);
-
             var grouped = rawTrends.GroupBy(t => t.SkillNode.NodeName)
                 .Select(g => new TrendChartDto
                 {
@@ -244,7 +236,6 @@ Mô tả công việc: {description}";
                         TrendScore = x.TrendScore ?? 0
                     }).OrderBy(x => x.AnalyzedDate).ToList()
                 }).ToList();
-
             return grouped;
         }
     }

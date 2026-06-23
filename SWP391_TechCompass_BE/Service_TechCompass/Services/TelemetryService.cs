@@ -14,12 +14,12 @@ namespace Service_TechCompass.Services
             _taskQueue = taskQueue;
         }
 
-        public async Task LogLearningHistoryAsync(Guid studentId, Guid progressId, string actionType, int durationSeconds, string details = "")
+        public async Task LogLearningHistoryAsync(Guid studentId, Guid? progressId, string actionType, int durationSeconds, string details)
         {
             var telemetryEvent = new TelemetryEventDto
             {
                 StudentId = studentId,
-                ProgressId = progressId, // MAPPING VÀO DTO
+                ProgressId = progressId, 
                 ActionType = actionType,
                 DurationSeconds = durationSeconds,
                 EventData = details

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
+using Hangfire; // ĐÃ THÊM: Dùng cho tiến trình nền
 
 namespace API_TechCompass.Controllers
 {
@@ -47,15 +48,15 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // Task 53, 54, 55: Trigger bằng tay (Thường thì cái này sẽ được gọi tự động bởi Quartz.NET hoặc Hangfire mỗi đêm)
+        // Task 53, 54, 55: Trigger bằng tay 
         [HttpPost("admin/trigger-scraper")]
-        public async Task<IActionResult> TriggerScraper()
+        public IActionResult TriggerScraper() // ĐÃ SỬA: Bỏ async Task vì gọi Hangfire xong là xong luôn
         {
-            var result = await _marketPulseService.RunScraperAndTrendAnalysisAsync();
-            if (result.StatusCode == 200)
-                return Ok(new { message = result.Message });
+            // HANGFIRE: Đưa nhiệm vụ cào dữ liệu & phân tích xu hướng vào Queue chạy ngầm
+            BackgroundJob.Enqueue<IMarketPulseService>(service => service.RunScraperAndTrendAnalysisAsync());
 
-            return StatusCode(result.StatusCode, new { message = result.Message });
+            // Lập tức trả về cho Admin (Phản hồi trong 0.01 giây thay vì phải chờ 15 phút)
+            return Ok(new { message = "Lệnh cào dữ liệu Job Market đã được đưa vào tiến trình chạy ngầm. Quá trình này có thể tốn 5-10 phút. Admin có thể kiểm tra tại /hangfire." });
         }
     }
 }

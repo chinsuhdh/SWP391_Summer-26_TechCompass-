@@ -7,7 +7,7 @@ public partial class LearningHistory
 {
     public Guid HistoryId { get; set; }
 
-    public Guid ProgressId { get; set; }
+    public Guid? ProgressId { get; set; }
 
     public string? ActionType { get; set; }
 
@@ -15,5 +15,5 @@ public partial class LearningHistory
 
     public DateTime? RecordedAt { get; set; }
 
-    public virtual RoadmapProgress Progress { get; set; } = null!;
+    public virtual RoadmapProgress? Progress { get; set; }
 }

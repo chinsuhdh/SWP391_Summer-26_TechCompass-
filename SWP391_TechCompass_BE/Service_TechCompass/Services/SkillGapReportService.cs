@@ -14,19 +14,21 @@ namespace Service_TechCompass.Services
 {
     public class SkillGapReportData
     {
-        // ĐÃ FIX CẢNH BÁO CS8618: Thêm giá trị mặc định
         public string TargetRoleName { get; set; } = string.Empty;
         public string LatentTalentSummary { get; set; } = string.Empty;
         public List<SkillGapItemDto> GapItems { get; set; } = new List<SkillGapItemDto>();
+        public Guid StudentId { get; set; } // ĐÃ THÊM: Lưu lại StudentId để truyền xuống hàm GeneratePDF
     }
 
     public class SkillGapReportService : ISkillGapReportService
     {
         private readonly Swp391CareerRoadmapContext _context;
+        private readonly ITelemetryService _telemetryService; // ĐÃ THÊM: Inject Queue
 
-        public SkillGapReportService(Swp391CareerRoadmapContext context)
+        public SkillGapReportService(Swp391CareerRoadmapContext context, ITelemetryService telemetryService)
         {
             _context = context;
+            _telemetryService = telemetryService;
         }
 
         public async Task<object> GetSkillGapDataAsync(Guid studentId)
@@ -75,15 +77,25 @@ namespace Service_TechCompass.Services
                 });
             }
 
+            // ĐẨY VÀO QUEUE: Ghi nhận sinh viên vừa mở màn hình Skill Gap (Thống kê sự quan tâm)
+            await _telemetryService.LogLearningHistoryAsync(
+                studentId: studentId,
+                progressId: Guid.Empty,
+                actionType: "VIEW_SKILL_GAP",
+                durationSeconds: 0,
+                details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
+            );
+
             return new SkillGapReportData
             {
+                StudentId = studentId, // Lưu lại phục vụ cho Tracking
                 TargetRoleName = targetRoleName,
                 LatentTalentSummary = aiSummary,
                 GapItems = resultList
             };
         }
 
-        public Task<byte[]> GeneratePdfReportAsync(object reportData)
+        public async Task<byte[]> GeneratePdfReportAsync(object reportData)
         {
             var wrapper = reportData as SkillGapReportData;
             if (wrapper == null || wrapper.GapItems == null || !wrapper.GapItems.Any())
@@ -108,26 +120,18 @@ namespace Service_TechCompass.Services
                     {
                         col.Item().Text("TECH COMPASS - SKILL GAP ANALYSIS REPORT")
                                   .FontSize(18).SemiBold().FontColor(Colors.Teal.Darken2);
-
                         col.Item().Text($"Generated Date: {DateTime.Now:yyyy-MM-dd HH:mm}");
-
-                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
                         col.Item().PaddingTop(5).Text($"Target Role: {targetRoleName}").FontSize(13).SemiBold();
-
-                        // ĐÃ FIX LỖI CS1929: Đưa PaddingVertical lên trước .LineHorizontal()
                         col.Item().PaddingVertical(10).LineHorizontal(1).LineColor(Colors.Grey.Lighten2);
                     });
 
                     page.Content().Column(col =>
                     {
                         col.Spacing(15);
-
                         col.Item().Text("1. AI Profile Summary (Talent & Strengths):")
                                   .FontSize(14).SemiBold().FontColor(Colors.Green.Darken2);
-
                         col.Item().Text(aiSummary).FontSize(11);
 
-                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
                         col.Item().PaddingTop(10).Text("2. Missing & Improvement Areas:")
                                   .FontSize(14).SemiBold().FontColor(Colors.Orange.Darken2);
 
@@ -151,9 +155,7 @@ namespace Service_TechCompass.Services
                                         txt.Span($"{index}. {skill.NodeName} - Priority: ").SemiBold();
                                         txt.Span(priority).SemiBold().FontColor(priorityColor);
                                     });
-
                                     innerCol.Item().Text($"Current Skill Level: {skill.CurrentScore}% | Market Target: {skill.TargetScore}% -> Gap: {gapSize}%");
-
                                     innerCol.Item().Text($"Learning Link: http://localhost:5173/dashboard/learning?skill={Uri.EscapeDataString(skill.NodeName)}")
                                                    .FontColor(Colors.Blue.Medium).Underline();
                                 });
@@ -165,7 +167,6 @@ namespace Service_TechCompass.Services
                             col.Item().Text("Excellent! You meet all the requirements for your Target Role.").Italic();
                         }
 
-                        // ĐÃ FIX LỖI CS1929: Đưa PaddingTop lên trước .Text()
                         col.Item().PaddingTop(20).Text("Recommendation: Focus on HIGH priority skills. Access the Learning Hub links above to start.")
                                   .SemiBold();
                     });
@@ -180,7 +181,16 @@ namespace Service_TechCompass.Services
                 });
             }).GeneratePdf();
 
-            return Task.FromResult(pdfBytes);
+            // ĐẨY VÀO QUEUE: Theo dõi hành vi xuất báo cáo của sinh viên
+            await _telemetryService.LogLearningHistoryAsync(
+                studentId: wrapper.StudentId,
+                progressId: Guid.Empty,
+                actionType: "EXPORT_PDF_REPORT",
+                durationSeconds: 0,
+                details: $"Đã xuất PDF báo cáo Skill Gap thành công."
+            );
+
+            return pdfBytes;
         }
     }
 }

@@ -11,6 +11,7 @@ using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
 using Microsoft.SemanticKernel;
+using Hangfire; // ĐÃ THÊM
 
 namespace API_TechCompass
 {
@@ -36,26 +37,28 @@ namespace API_TechCompass
             builder.Services.AddScoped<IMarketPulseRepository, MarketPulseRepository>();
 
             // 3. ĐĂNG KÝ SEMANTIC KERNEL (TÍCH HỢP AI)
-
             var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");
-            var geminiApiKey = geminiConfig["ApiKey"];
+            var geminiApiKeys = geminiConfig.GetSection("ApiKeys").Get<string[]>();
             var geminiModelId = geminiConfig["ModelId"] ?? "gemini-2.5-flash";
 
             var openAiConfig = builder.Configuration.GetSection("OpenAiApiConfig");
             var openAiApiKey = openAiConfig["ApiKey"];
             var openAiModelId = openAiConfig["ModelId"] ?? "gpt-4o-mini";
 
-            if (string.IsNullOrEmpty(geminiApiKey) || string.IsNullOrEmpty(openAiApiKey))
+            if (geminiApiKeys == null || geminiApiKeys.Length == 0 || string.IsNullOrEmpty(openAiApiKey))
             {
                 throw new InvalidOperationException("[LỖI CẤU HÌNH NGHIÊM TRỌNG]: API Key của Gemini hoặc OpenAI bị rỗng trong appsettings.json!");
             }
 
             builder.Services.AddTransient<Kernel>(sp =>
             {
+                // Lấy ngẫu nhiên 1 API Key từ danh sách để tránh bị hit limit
+                var randomGeminiKey = geminiApiKeys[Random.Shared.Next(geminiApiKeys.Length)];
+
                 return Kernel.CreateBuilder()
                     .AddGoogleAIGeminiChatCompletion(
                         modelId: geminiModelId,
-                        apiKey: geminiApiKey,
+                        apiKey: randomGeminiKey,
                         serviceId: "GeminiChat")
                     .AddOpenAIChatCompletion(
                         modelId: openAiModelId,
@@ -94,16 +97,28 @@ namespace API_TechCompass
             builder.Services.AddScoped<ITelemetryService, TelemetryService>();
             builder.Services.AddHostedService<TelemetryWorker>();
 
+            // ---------------------------------------------------------
+            // ĐĂNG KÝ HANGFIRE (XỬ LÝ LỖI "Not Initialized")
+            // ---------------------------------------------------------
+            builder.Services.AddHangfire(configuration => configuration
+                .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+            builder.Services.AddHangfireServer();
+            // ---------------------------------------------------------
+
             // 7. CẤU HÌNH CORS
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll",
                     policy =>
                     {
-                        policy.WithOrigins("http://localhost:5173") // CHỈ ĐỊNH ĐÚNG URL CỦA VITE REACT
+                        policy.WithOrigins("http://localhost:5173")
                               .AllowAnyMethod()
                               .AllowAnyHeader()
-                              .AllowCredentials(); // BẮT BUỘC PHẢI CÓ DÒNG NÀY CHO SIGNALR
+                              .AllowCredentials();
                     });
             });
 
@@ -188,12 +203,24 @@ namespace API_TechCompass
             app.UseAuthentication();
             app.UseAuthorization();
 
+            // ---------------------------------------------------------
+            // KÍCH HOẠT HANGFIRE DASHBOARD & ĐĂNG KÝ JOB ĐỊNH KỲ
+            // ---------------------------------------------------------
+            app.UseHangfireDashboard("/hangfire");
+
+            // Kích hoạt cào dữ liệu lúc 17h UTC (0h đêm VN)
+            RecurringJob.AddOrUpdate<IMarketPulseService>(
+                "daily-job-scraper",
+                service => service.RunScraperAndTrendAnalysisAsync(),
+                Cron.Daily(17));
+            // ---------------------------------------------------------
+
             app.MapControllers();
 
             // MAP CÁC HUB SIGNALR
             app.MapHub<Service_TechCompass.Hubs.RoadmapNotificationHub>("/hubs/roadmap");
             app.MapHub<Service_TechCompass.Hubs.VirtualMentorChatHub>("/hubs/virtualMentor");
-
+            app.MapHub<Service_TechCompass.Hubs.PortfolioHub>("/portfolioHub");
             app.Run();
         }
     }

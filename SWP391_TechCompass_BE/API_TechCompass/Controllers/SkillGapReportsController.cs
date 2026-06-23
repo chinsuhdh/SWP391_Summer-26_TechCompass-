@@ -34,7 +34,7 @@ namespace API_TechCompass.Controllers
                 // 1. Lấy dữ liệu phân tích Gap
                 var reportData = await _reportService.GetSkillGapDataAsync(studentId);
 
-                // 2. Generate PDF thành mảng byte (Sử dụng QuestPDF, DinkToPdf hoặc iTextSharp trong Service)
+                // 2. Generate PDF thành mảng byte bằng QuestPDF (Xử lý đồng bộ, không dùng Hangfire)
                 byte[] pdfBytes = await _reportService.GeneratePdfReportAsync(reportData);
 
                 // 3. Trả về FileContentResult để Browser tự động tải
