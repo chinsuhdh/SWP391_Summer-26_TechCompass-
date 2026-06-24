@@ -9,7 +9,7 @@ namespace Service_TechCompass.DTOs.Background
         public Guid StudentId { get; set; }
 
         public Guid? ProgressId { get; set; }
-
+        
         public string ActionType { get; set; } = null!;
 
         public string EventData { get; set; } = string.Empty;

@@ -49,7 +49,7 @@ namespace Service_TechCompass.Services.BackgroundJobs
                             DurationSeconds = workItem.DurationSeconds,
                             RecordedAt = workItem.RecordedAt,
 
-                            ProgressId = workItem.ProgressId // THÊM DÒNG NÀY ĐỂ HẾT LỖI FOREIGN KEY
+                            ProgressId = workItem.ProgressId == Guid.Empty ? null : workItem.ProgressId
                         };
 
                         context.LearningHistories.Add(historyRecord);

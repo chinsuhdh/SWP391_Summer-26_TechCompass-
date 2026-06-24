@@ -144,10 +144,13 @@ namespace Service_TechCompass.Services
                 }
 
                 var allNodes = await _repo.GetAllSkillNodesAsync();
-                var trendsToSave = new List<TrendAnalysis>();
-                int newJobsCount = 0;
 
-                foreach (var scrapedJob in serpData.JobsResults.Take(10))
+                // 1. TẠO DICTIONARY ĐỂ THỐNG KÊ TẦN SUẤT XUẤT HIỆN CỦA TỪNG KỸ NĂNG
+                var skillFrequencyMap = new Dictionary<int, int>();
+                var scrapedJobs = serpData.JobsResults.Take(10).ToList();
+                int totalJobsScraped = scrapedJobs.Count;
+
+                foreach (var scrapedJob in scrapedJobs)
                 {
                     var job = new JobPosting
                     {
@@ -159,24 +162,48 @@ namespace Service_TechCompass.Services
                         ScrapedAt = DateTime.Now
                     };
 
+                    // AI bóc tách kỹ năng từ Job Description
                     var matchedNodes = await ExtractSkillsUsingAiAsync(job.JobDescriptionRaw, allNodes);
 
                     foreach (var node in matchedNodes)
                     {
                         job.SkillNodes.Add(node);
-                        trendsToSave.Add(new TrendAnalysis
+
+                        // Đếm số lần kỹ năng này xuất hiện trong đợt cào dữ liệu
+                        if (!skillFrequencyMap.ContainsKey(node.SkillNodeId))
                         {
-                            SkillNodeId = node.SkillNodeId,
-                            AnalyzedDate = DateOnly.FromDateTime(DateTime.Now),
-                            DemandPercent = (decimal)new Random().Next(10, 90),
-                            TrendScore = (decimal)(new Random().NextDouble() * 5)
-                        });
+                            skillFrequencyMap[node.SkillNodeId] = 0;
+                        }
+                        skillFrequencyMap[node.SkillNodeId]++;
                     }
 
                     await _repo.SaveJobPostingAsync(job);
-                    newJobsCount++;
                 }
 
+                // 2. TÍNH TOÁN TREND SCORE VÀ DEMAND PERCENT DỰA TRÊN DỮ LIỆU THỰC TẾ
+                var trendsToSave = new List<TrendAnalysis>();
+
+                foreach (var kvp in skillFrequencyMap)
+                {
+                    int skillId = kvp.Key;
+                    int frequencyCount = kvp.Value;
+
+                    // Công thức: (Số lần xuất hiện / Tổng số job) * 100
+                    decimal realDemandPercent = Math.Round((decimal)frequencyCount / totalJobsScraped * 100, 2);
+
+                    // Công thức Score: Scale % về hệ số 5
+                    decimal realTrendScore = Math.Round(realDemandPercent / 20, 2);
+
+                    trendsToSave.Add(new TrendAnalysis
+                    {
+                        SkillNodeId = skillId,
+                        AnalyzedDate = DateOnly.FromDateTime(DateTime.Now),
+                        DemandPercent = realDemandPercent,
+                        TrendScore = realTrendScore
+                    });
+                }
+
+                // 3. LƯU BẢN GHI THỐNG KÊ (Mỗi ngày/đợt cào chỉ có 1 dòng cho 1 kỹ năng)
                 if (trendsToSave.Any()) await _repo.SaveTrendAnalysisAsync(trendsToSave);
 
                 watch.Stop();
@@ -186,10 +213,10 @@ namespace Service_TechCompass.Services
                     progressId: Guid.Empty,
                     actionType: "SYSTEM_JOB_SCRAPED",
                     durationSeconds: (int)watch.Elapsed.TotalSeconds,
-                    details: $"CronJob cào thành công {newJobsCount} công việc cho nhóm ngành '{query}' tại '{location}'."
+                    details: $"Cào {totalJobsScraped} jobs. Phân tích được {trendsToSave.Count} kỹ năng xu hướng cho nhóm ngành '{query}'."
                 );
 
-                return (200, $"Cào thành công {newJobsCount} công việc cho nhóm ngành '{query}' tại '{location}'.");
+                return (200, $"Cào thành công {totalJobsScraped} công việc và cập nhật Trend thực tế.");
             }
             catch (Exception ex)
             {

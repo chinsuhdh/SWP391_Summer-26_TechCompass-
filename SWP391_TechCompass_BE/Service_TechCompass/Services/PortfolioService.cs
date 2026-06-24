@@ -129,7 +129,6 @@ namespace Service_TechCompass.Services
 
                     if (string.IsNullOrWhiteSpace(readmeContent) || readmeContent.Length < 50) continue;
 
-                    // ... (Phần logic lưu Database của bạn giữ nguyên) ...
                     var dbRepo = existingRepos.FirstOrDefault(r => r.GithubUrl == repo.HtmlUrl);
 
                     if (dbRepo != null)
@@ -332,6 +331,173 @@ TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử d
                         SyncedAt = r.SyncedAt
                     }).ToList()
             };
+        }
+
+        // =========================================================================
+        // PHÂN HỆ MỚI: TẠO AI SUMMARY CHO PORTFOLIO & MASTER HANGFIRE PIPELINE
+        // =========================================================================
+
+        public async Task GenerateEPortfolioSummaryAsync(Guid studentId, Guid portfolioId)
+        {
+            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
+            if (portfolio == null) return;
+
+            string talentSummary = portfolio.Student?.LatentTalentSummary ?? "Sinh viên đang trong quá trình đánh giá năng lực cơ bản.";
+
+            var analyzedRepos = portfolio.GithubRepositories?
+                .Where(r => !string.IsNullOrWhiteSpace(r.AiProjectSummary))
+                .ToList() ?? new List<GithubRepository>();
+
+            if (!analyzedRepos.Any()) return;
+
+            string repoSummaries = string.Join("\n", analyzedRepos.Select(r =>
+                $"- Dự án {r.RepoName}: {r.AiProjectSummary} (Công nghệ: {r.ExtractedTechStack})"));
+
+            string prompt = $@"Bạn là một chuyên gia nhân sự cấp cao trong ngành IT. Dưới đây là dữ liệu của một ứng viên:
+
+[ĐÁNH GIÁ NĂNG LỰC CỐT LÕI]:
+{talentSummary}
+
+[CÁC DỰ ÁN THỰC TẾ]:
+{repoSummaries}
+
+Dựa trên dữ liệu này, hãy viết một đoạn 'Professional Summary' (khoảng 150-200 từ) để đặt ở trang chủ E-Portfolio của ứng viên. 
+YÊU CẦU:
+1. Nhấn mạnh sự kết hợp giữa tư duy nền tảng và khả năng áp dụng công nghệ thực tế.
+2. Viết dưới dạng một đoạn văn chuyên nghiệp, truyền cảm hứng.
+3. KHÔNG sử dụng Markdown (không in đậm, in nghiêng, gạch đầu dòng). KHÔNG bịa đặt thêm công nghệ.";
+
+            try
+            {
+                var chatService = _kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+                var result = await chatService.GetChatMessageContentAsync(prompt);
+
+                string aiSummary = result.Content?.Trim() ?? string.Empty;
+
+                if (!string.IsNullOrEmpty(aiSummary))
+                {
+                    portfolio.AiProfileSummary = aiSummary;
+
+                    await _portfolioRepo.UpdatePortfolioAsync(portfolio);
+
+                    await _hubContext.Clients.All.SendAsync("PortfolioSummaryCompleted", studentId.ToString());
+                    Console.WriteLine($"[SUCCESS] Đã tạo xong AI Master Summary cho Portfolio: {portfolio.PortfolioId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LỖI AI SUMMARY E-PORTFOLIO]: {ex.Message}");
+            }
+        }
+
+        public async Task ProcessFullGithubPipelineAsync(Guid studentId, string githubUsername)
+        {
+            // Bước 1: Gọi hàm đồng bộ (Chỉ kéo danh sách repo và nội dung README thô về DB)
+            var syncResult = await SyncGithubReposAsync(studentId, githubUsername);
+            if (syncResult.StatusCode != 200) return;
+
+            await Task.Delay(1000);
+
+            // Fetch portfolio tại đây để luôn có portfolioId truyền cho bước 3
+            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
+            if (portfolio == null) return;
+
+            // Bước 2: Bổ sung cập nhật Ngôn ngữ lập trình thực tế từ GitHub API
+            try
+            {
+                var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
+                var githubToken = _config["GithubConfig:PersonalAccessToken"];
+                if (!string.IsNullOrEmpty(githubToken)) github.Credentials = new Credentials(githubToken);
+
+                if (portfolio.GithubRepositories != null)
+                {
+                    foreach (var dbRepo in portfolio.GithubRepositories)
+                    {
+                        string[] urlParts = dbRepo.GithubUrl.Replace("https://github.com/", "").Split('/');
+                        if (urlParts.Length >= 2)
+                        {
+                            string owner = urlParts[0];
+                            string repoName = urlParts[1];
+
+                            var languages = await github.Repository.GetAllLanguages(owner, repoName);
+                            if (languages.Any())
+                            {
+                                dbRepo.ExtractedTechStack = string.Join(", ", languages.Select(l => l.Name));
+                                await _portfolioRepo.UpdateGithubRepoAsync(dbRepo);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WARNING-LANGUAGES] Không kéo được danh sách ngôn ngữ Octokit: {ex.Message}");
+            }
+
+            // Bước 3: Tổng hợp và tính toán tỷ lệ % phù hợp nghề nghiệp
+            Console.WriteLine("[MASTER-PIPELINE] Bắt đầu đánh giá mức độ phù hợp Job Role...");
+            await EvaluateRoleSuitabilityAsync(studentId, portfolio.PortfolioId);
+        }
+
+        public async Task EvaluateRoleSuitabilityAsync(Guid studentId, Guid portfolioId)
+        {
+            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
+            if (portfolio == null) return;
+
+            // 1. Lấy năng lực học thuật ẩn (Latent Talent)
+            string academicTalent = portfolio.Student?.LatentTalentSummary ?? "Chưa có dữ liệu học thuật.";
+
+            // 2. Lấy dữ liệu các dự án thực tế đã được AI phân tích thành công
+            var validRepos = portfolio.GithubRepositories?
+                .Where(r => !string.IsNullOrEmpty(r.AiProjectSummary))
+                .ToList() ?? new List<GithubRepository>();
+
+            string projectContext = validRepos.Any()
+                ? string.Join("\n", validRepos.Select(r => $"- Dự án '{r.RepoName}': {r.AiProjectSummary} (Công nghệ: {r.ExtractedTechStack})"))
+                : "Chưa có dự án thực tế nào được phân tích.";
+
+            // 3. Prompt thiết kế theo chuẩn Nghiên cứu Hướng nghiệp
+            string prompt = $@"Bạn là một chuyên gia Định hướng nghề nghiệp IT cấp cao. Dựa trên hồ sơ của sinh viên, hãy thực hiện phân tích định lượng.
+
+[HỒ SƠ HỌC THUẬT & TƯ DUY ẨN]:
+{academicTalent}
+
+[KINH NGHIỆM DỰ ÁN THỰC CHIẾN]:
+{projectContext}
+
+YÊU CẦU BẮT BUỘC: 
+1. Đưa ra đánh giá tổng quan (Professional Summary) ngắn gọn trong 3-4 câu (KHÔNG dùng markdown).
+2. Tính toán phần trăm mức độ phù hợp (0% - 100%) cho 3 vị trí dựa trên dữ liệu thực tế: Backend Developer, Front-End Developer, Full-Stack Developer.
+3. Trả về đúng định dạng text thô, không giải thích dông dài, cấu trúc chính xác như sau:
+SUMMARY: [Nội dung đoạn văn tóm tắt hồ sơ năng lực của sinh viên]
+SUITABILITY:
+Backend Developer: [Số]%
+Front-End Developer: [Số]%
+Full-Stack Developer: [Số]%";
+
+            try
+            {
+                var chatService = _kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+                var result = await chatService.GetChatMessageContentAsync(prompt);
+                string aiResponse = result.Content?.Trim() ?? string.Empty;
+
+                if (!string.IsNullOrEmpty(aiResponse) && aiResponse.Contains("SUMMARY:") && aiResponse.Contains("SUITABILITY:"))
+                {
+                    var parts = aiResponse.Split(new[] { "SUITABILITY:" }, StringSplitOptions.None);
+                    string cleanSummary = parts[0].Replace("SUMMARY:", "").Trim();
+
+                    portfolio.AiProfileSummary = cleanSummary;
+                    await _portfolioRepo.UpdatePortfolioAsync(portfolio);
+
+                    // Bắn SignalR thông báo hoàn tất toàn bộ tiến trình định hướng nghề nghiệp cao cấp
+                    await _hubContext.Clients.All.SendAsync("portfoliosummarycompleted", studentId.ToString());
+                    Console.WriteLine($"[RESEARCH SUCCESS] Đã phân tích xong độ khớp vai trò cho Student: {studentId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RESEARCH ERROR] Lỗi phân tích định hướng nghề nghiệp: {ex.Message}");
+            }
         }
     }
 }
