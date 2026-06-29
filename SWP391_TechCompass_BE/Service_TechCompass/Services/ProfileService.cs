@@ -16,9 +16,9 @@ namespace Service_TechCompass.Services
             _context = context;
         }
 
+        // API 1: Lấy thông tin chung (Cả Admin và Student đều dùng)
         public async Task<UserProfileDto> GetProfileMeAsync(Guid userId)
         {
-            // 1. Tìm User từ bảng Core (users) và kèm theo dữ liệu bảng roles
             var user = await _context.Users
                 .Include(u => u.Role)
                 .FirstOrDefaultAsync(u => u.UserId == userId);
@@ -28,7 +28,6 @@ namespace Service_TechCompass.Services
                 throw new Exception("Không tìm thấy thông tin tài khoản!");
             }
 
-            // 2. Gán dữ liệu cơ bản chung cho mọi tài khoản (Cả Admin và Student)
             var profileDto = new UserProfileDto
             {
                 UserId = user.UserId,
@@ -37,27 +36,22 @@ namespace Service_TechCompass.Services
                 RoleName = user.Role?.RoleName ?? "Không xác định"
             };
 
-            // 3. Phân nhánh xử lý theo Vai trò
             if (user.RoleId == 1 || user.Role?.RoleName?.ToLower() == "admin")
             {
-                // Nếu là ADMIN: Không cần query bảng students, gán thông tin hiển thị mặc định
                 profileDto.FullName = "Quản Trị Viên Hệ Thống";
                 profileDto.StudentCode = "ADMIN_ROOT";
                 profileDto.TargetCareerRole = "System Manager";
             }
             else
             {
-                // Nếu không phải Admin: Tiến hành tìm kiếm thông tin mở rộng ở bảng Students
                 var student = await _context.Students
-                    .Include(s => s.TargetRole) // Join sang bảng target_career_roles
+                    .Include(s => s.TargetRole)
                     .FirstOrDefaultAsync(s => s.UserId == userId);
 
                 if (student != null)
                 {
                     profileDto.FullName = student.FullName;
                     profileDto.StudentCode = student.StudentCode;
-
-                    // Lấy RoleName từ bảng liên kết thay vì lấy ID
                     profileDto.TargetCareerRole = student.TargetRole?.RoleName;
                 }
                 else
@@ -68,11 +62,54 @@ namespace Service_TechCompass.Services
 
             return profileDto;
         }
+
+        // API 2: Cập nhật hồ sơ (Chỉ dành cho Student)
+        public async Task<bool> UpdateStudentProfileAsync(Guid userId, UpdateStudentProfileDto dto)
+        {
+            var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
+            if (student == null)
+            {
+                throw new Exception("Tài khoản Admin không có hồ sơ sinh viên để cập nhật!");
+            }
+
+            student.FullName = dto.FullName;
+            student.StudentCode = dto.StudentCode;
+            student.LatentTalentSummary = dto.LatentTalentSummary;
+            student.TargetRoleId = dto.TargetRoleId;
+            // student.UpdatedAt = DateTime.UtcNow; // Bỏ comment nếu DB của bạn có cột này
+
+            return await _context.SaveChangesAsync() > 0;
+        }
+
+        // API 3: Lấy chi tiết hồ sơ sinh viên (Chuyên sâu)
+        public async Task<UserStudentProfileDto> GetStudentProfileOnlyAsync(Guid userId)
+        {
+            var user = await _context.Users
+                .Include(u => u.Student)
+                .FirstOrDefaultAsync(u => u.UserId == userId);
+
+            if (user == null || user.Student == null)
+            {
+                throw new Exception("Không tìm thấy hồ sơ sinh viên tương ứng!");
+            }
+
+            return new UserStudentProfileDto
+            {
+                UserId = user.UserId,
+                Email = user.Email,
+                FullName = user.Student.FullName,
+                StudentCode = user.Student.StudentCode,
+                LatentTalentSummary = user.Student.LatentTalentSummary,
+                TargetRoleId = user.Student.TargetRoleId
+            };
+        }
     }
 
-    // Khai báo hàm trong Interface để Controller có thể gọi được
+    // Giao diện Interface bọc cả 3 hàm mẫu
     public interface IProfileService
     {
         Task<UserProfileDto> GetProfileMeAsync(Guid userId);
+        Task<bool> UpdateStudentProfileAsync(Guid userId, UpdateStudentProfileDto dto);
+        Task<UserStudentProfileDto> GetStudentProfileOnlyAsync(Guid userId);
     }
 }
