@@ -1,18 +1,17 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using Service_TechCompass.Services;
 using System;
 using System.Linq;
-using System.Security.Claims;
+using System.Security.Claims; // BẮT BUỘC PHẢI CÓ THƯ VIỆN NÀY
 using System.Threading.Tasks;
 
 namespace API_TechCompass.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
     public class ProfileController : ControllerBase
     {
         private readonly IProfileService _profileService;
@@ -22,66 +21,87 @@ namespace API_TechCompass.Controllers
             _profileService = profileService;
         }
 
-        // API 1: Lấy hồ sơ cá nhân
         [HttpGet("me")]
+        [Authorize]
         public async Task<IActionResult> GetMyProfile()
         {
-            try
+            // 1. Quét tìm UserId ở mọi định dạng có thể có trong Token
+            var userIdString = User.Claims.FirstOrDefault(c =>
+                c.Type == "UserId" ||
+                c.Type == "sub" ||
+                c.Type == ClaimTypes.NameIdentifier)?.Value;
+
+            // 2. Quét tìm RoleId
+            var roleIdString = User.Claims.FirstOrDefault(c => c.Type == "RoleId")?.Value;
+
+            // DỰ PHÒNG: Nếu Token không lưu số RoleId, mà lưu chữ "Admin" hoặc "Student"
+            if (string.IsNullOrEmpty(roleIdString))
             {
-                Guid userId = GetUserIdFromToken();
-                var profile = await _profileService.GetProfileMeAsync(userId);
-                return Ok(profile);
+                var roleName = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role || c.Type == "role")?.Value;
+                if (roleName == "Admin") roleIdString = "1";
+                else if (roleName == "Student") roleIdString = "2";
             }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+
+            // Kiểm tra chốt chặn
+            if (string.IsNullOrEmpty(userIdString) || string.IsNullOrEmpty(roleIdString))
+                return Unauthorized("Không tìm thấy UserId hoặc RoleId trong Token. Hãy thử đăng nhập lại.");
+
+            var userId = Guid.Parse(userIdString);
+            var roleId = int.Parse(roleIdString);
+
+            // 3. Gọi Service
+            var profile = await _profileService.GetProfileMeAsync(userId, roleId);
+
+            if (profile == null) return NotFound("Không tìm thấy hồ sơ người dùng.");
+
+            return Ok(profile);
         }
 
-        // API 2: Cập nhật thông tin sinh viên
-        [HttpPut("update")]
-        public async Task<IActionResult> UpdateProfile([FromBody] UpdateStudentProfileDto dto)
+        [HttpPut("me")]
+        [Authorize]
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateStudentProfileDto dto)
         {
             try
             {
-                Guid userId = GetUserIdFromToken();
-                var result = await _profileService.UpdateStudentProfileAsync(userId, dto);
-                return Ok(new { message = "Cập nhật thông tin hồ sơ thành công!" });
+                var userIdString = User.Claims.FirstOrDefault(c => c.Type == "UserId" || c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+
+                var userId = Guid.Parse(userIdString);
+                var success = await _profileService.UpdateProfileMeAsync(userId, dto);
+
+                if (success) return Ok("Cập nhật hồ sơ thành công!");
+                return BadRequest("Cập nhật thất bại, không có thay đổi nào.");
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(ex.Message);
             }
         }
 
-        // API 3: Lấy chi tiết sâu của sinh viên
-        [HttpGet("student-detail")]
-        public async Task<IActionResult> GetStudentDetail()
+        [HttpPost("upload-transcript")]
+        [Authorize]
+        public async Task<IActionResult> UploadTranscript(IFormFile file)
         {
             try
             {
-                Guid userId = GetUserIdFromToken();
-                var result = await _profileService.GetStudentProfileOnlyAsync(userId);
-                return Ok(result);
+                var userIdString = User.Claims.FirstOrDefault(c => c.Type == "UserId" || c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+
+                var userId = Guid.Parse(userIdString);
+                var url = await _profileService.UploadTranscriptAsync(userId, file);
+                return Ok(new { Url = url });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(ex.Message);
             }
         }
 
-        // Hàm dùng chung để bóc tách UserId từ Token mã hóa
-        private Guid GetUserIdFromToken()
+        [HttpGet("target-roles")]
+        public async Task<IActionResult> GetTargetRoles()
         {
-            var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value
-                              ?? User.Claims.FirstOrDefault(c => c.Type == "id")?.Value;
-
-            if (string.IsNullOrEmpty(userIdClaim))
-            {
-                throw new Exception("Phiên đăng nhập không hợp lệ hoặc hết hạn!");
-            }
-
-            return Guid.Parse(userIdClaim);
+            var roles = await _profileService.GetTargetRolesAsync();
+            return Ok(roles);
         }
     }
 }

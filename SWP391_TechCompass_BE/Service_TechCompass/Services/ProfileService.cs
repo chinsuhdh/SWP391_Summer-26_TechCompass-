@@ -1,8 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
-using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
+using Service_TechCompass.Interfaces;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Service_TechCompass.Services
@@ -16,100 +18,86 @@ namespace Service_TechCompass.Services
             _context = context;
         }
 
-        // API 1: Lấy thông tin chung (Cả Admin và Student đều dùng)
-        public async Task<UserProfileDto> GetProfileMeAsync(Guid userId)
+        public async Task<UserProfileDto?> GetProfileMeAsync(Guid userId, int roleId)
         {
-            var user = await _context.Users
-                .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.UserId == userId);
-
-            if (user == null)
+            // 1. DÀNH CHO ADMIN
+            if (roleId == 1)
             {
-                throw new Exception("Không tìm thấy thông tin tài khoản!");
+                var adminUser = await _context.Users
+                    .Include(u => u.Role)
+                    .FirstOrDefaultAsync(u => u.UserId == userId);
+
+                if (adminUser == null) return null;
+
+                return new UserProfileDto
+                {
+                    UserId = adminUser.UserId,
+                    Email = adminUser.Email ?? string.Empty,
+
+                    // SỬA LỖI Ở ĐÂY: Vì bảng User không có tên, ta lấy phần đầu của Email làm tên hoặc để cứng là "Quản trị viên"
+                    FullName = adminUser.Email != null ? adminUser.Email.Split('@')[0] : "Quản trị viên",
+
+                    RoleId = adminUser.RoleId,
+                    RoleName = adminUser.Role?.RoleName ?? "Admin",
+                    StudentCode = "HỆ THỐNG",
+                    TargetCareerRole = "Quản lý hệ thống (System Manager)"
+                };
             }
 
-            var profileDto = new UserProfileDto
+            // 2. DÀNH CHO SINH VIÊN
+            if (roleId == 2)
             {
-                UserId = user.UserId,
-                Email = user.Email,
-                RoleId = user.RoleId,
-                RoleName = user.Role?.RoleName ?? "Không xác định"
-            };
-
-            if (user.RoleId == 1 || user.Role?.RoleName?.ToLower() == "admin")
-            {
-                profileDto.FullName = "Quản Trị Viên Hệ Thống";
-                profileDto.StudentCode = "ADMIN_ROOT";
-                profileDto.TargetCareerRole = "System Manager";
-            }
-            else
-            {
-                var student = await _context.Students
+                var studentProfile = await _context.Students
+                    .Include(s => s.User)
                     .Include(s => s.TargetRole)
                     .FirstOrDefaultAsync(s => s.UserId == userId);
 
-                if (student != null)
+                if (studentProfile == null) return null;
+
+                return new UserProfileDto
                 {
-                    profileDto.FullName = student.FullName;
-                    profileDto.StudentCode = student.StudentCode;
-                    profileDto.TargetCareerRole = student.TargetRole?.RoleName;
-                }
-                else
-                {
-                    profileDto.FullName = "Người dùng mới (Chưa cập nhật hồ sơ)";
-                }
+                    UserId = studentProfile.UserId,
+                    Email = studentProfile.User?.Email ?? string.Empty,
+                    FullName = studentProfile.FullName ?? "Sinh viên",
+                    RoleId = studentProfile.User?.RoleId ?? 2,
+                    RoleName = "Student",
+                    StudentCode = studentProfile.StudentCode,
+                    TargetCareerRole = studentProfile.TargetRole?.RoleName
+                };
             }
 
-            return profileDto;
+            return null;
         }
 
-        // API 2: Cập nhật hồ sơ (Chỉ dành cho Student)
-        public async Task<bool> UpdateStudentProfileAsync(Guid userId, UpdateStudentProfileDto dto)
+        public async Task<bool> UpdateProfileMeAsync(Guid userId, UpdateStudentProfileDto dto)
         {
             var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
-            if (student == null)
-            {
-                throw new Exception("Tài khoản Admin không có hồ sơ sinh viên để cập nhật!");
-            }
+            if (student == null) throw new Exception("Hồ sơ sinh viên không tồn tại để cập nhật!");
 
             student.FullName = dto.FullName;
             student.StudentCode = dto.StudentCode;
             student.LatentTalentSummary = dto.LatentTalentSummary;
             student.TargetRoleId = dto.TargetRoleId;
-            // student.UpdatedAt = DateTime.UtcNow; // Bỏ comment nếu DB của bạn có cột này
 
             return await _context.SaveChangesAsync() > 0;
         }
 
-        // API 3: Lấy chi tiết hồ sơ sinh viên (Chuyên sâu)
-        public async Task<UserStudentProfileDto> GetStudentProfileOnlyAsync(Guid userId)
+        public async Task<string> UploadTranscriptAsync(Guid userId, IFormFile file)
         {
-            var user = await _context.Users
-                .Include(u => u.Student)
-                .FirstOrDefaultAsync(u => u.UserId == userId);
-
-            if (user == null || user.Student == null)
-            {
-                throw new Exception("Không tìm thấy hồ sơ sinh viên tương ứng!");
-            }
-
-            return new UserStudentProfileDto
-            {
-                UserId = user.UserId,
-                Email = user.Email,
-                FullName = user.Student.FullName,
-                StudentCode = user.Student.StudentCode,
-                LatentTalentSummary = user.Student.LatentTalentSummary,
-                TargetRoleId = user.Student.TargetRoleId
-            };
+            if (file == null || file.Length == 0) throw new Exception("File không hợp lệ!");
+            string fileUrl = $"https://storage.domain.com/transcripts/{userId}_{Guid.NewGuid()}_{file.FileName}";
+            return await Task.FromResult(fileUrl);
         }
-    }
 
-    // Giao diện Interface bọc cả 3 hàm mẫu
-    public interface IProfileService
-    {
-        Task<UserProfileDto> GetProfileMeAsync(Guid userId);
-        Task<bool> UpdateStudentProfileAsync(Guid userId, UpdateStudentProfileDto dto);
-        Task<UserStudentProfileDto> GetStudentProfileOnlyAsync(Guid userId);
+        public async Task<object> GetTargetRolesAsync()
+        {
+            return await _context.TargetCareerRoles
+                .Select(t => new
+                {
+                    TargetRoleId = t.TargetRoleId,
+                    RoleName = t.RoleName
+                })
+                .ToListAsync();
+        }
     }
 }

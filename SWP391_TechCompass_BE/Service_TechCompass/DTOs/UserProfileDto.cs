@@ -4,11 +4,11 @@
     {
         public Guid UserId { get; set; }
         public string Email { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
         public int RoleId { get; set; }
         public string RoleName { get; set; } = string.Empty;
 
-        // Các trường mở rộng của Student (để dạng nullable ? vì Admin không có)
-        public string? FullName { get; set; }
+        // Dấu ? giúp Admin không bị lỗi khi các trường này không có dữ liệu
         public string? StudentCode { get; set; }
         public string? TargetCareerRole { get; set; }
     }
