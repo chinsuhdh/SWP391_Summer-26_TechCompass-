@@ -11,12 +11,16 @@ namespace Repository_TechCompass.Interfaces
         List<AiRecommendation> GetAllAiRecommendations();
         Role? GetRoleById(int roleId);
         void UpdateUser(User user);
-        void DeleteUser(User user); 
+        void DeleteUser(User user);
         void AddRole(Role role);
         void UpdateRole(Role role);
         void DeleteRole(Role role);
         User? GetUserById(Guid userId);
+
         Student? GetStudentByUserId(Guid userId);
+        Mentor? GetMentorByUserId(Guid userId);
+        Counselor? GetCounselorByUserId(Guid userId);
+
         void UpdateStudent(Student student);
         User GetUserByEmail(string email);
         bool EmailExists(string email);

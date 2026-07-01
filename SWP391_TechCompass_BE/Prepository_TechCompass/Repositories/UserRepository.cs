@@ -25,7 +25,7 @@ namespace Repository_TechCompass.Repositories
             _context.Users.Update(user);
         }
 
-        public void DeleteUser(User user) // <--- Đã xóa hàm trùng, chỉ giữ 1 khối lệnh
+        public void DeleteUser(User user)
         {
             _context.Users.Remove(user);
         }
@@ -73,6 +73,16 @@ namespace Repository_TechCompass.Repositories
         public Student? GetStudentByUserId(Guid userId)
         {
             return _context.Students.FirstOrDefault(s => s.UserId == userId);
+        }
+
+        public Mentor? GetMentorByUserId(Guid userId)
+        {
+            return _context.Mentors.FirstOrDefault(m => m.UserId == userId);
+        }
+
+        public Counselor? GetCounselorByUserId(Guid userId)
+        {
+            return _context.Counselors.FirstOrDefault(c => c.UserId == userId);
         }
 
         public void UpdateStudent(Student student)
