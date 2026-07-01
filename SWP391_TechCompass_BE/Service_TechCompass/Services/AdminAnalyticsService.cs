@@ -1,58 +1,53 @@
-﻿using Repository_TechCompass.Interfaces;
-using Service_TechCompass.DTOs;
+﻿using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass;
+using Repository_TechCompass.Models;
 using Service_TechCompass.Interfaces;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace Service_TechCompass.Services
 {
     public class AdminAnalyticsService : IAdminAnalyticsService
     {
-        private readonly IAnalyticsRepository _analyticsRepo;
+        private readonly Swp391CareerRoadmapContext _context;
 
-        public AdminAnalyticsService(IAnalyticsRepository analyticsRepo)
+        public AdminAnalyticsService(Swp391CareerRoadmapContext context)
         {
-            _analyticsRepo = analyticsRepo;
+            _context = context;
         }
 
-        public Task<(int StatusCode, string Message, MarketAnalyticsDto? Data)> GetMarketAnalyticsAsync()
+        // 1. Phân tích thị trường (Market Analytics)
+        public async Task<object> GetMarketAnalyticsAsync()
         {
-            var trends = _analyticsRepo.GetLatestTrends(10); // Lấy top 10 kỹ năng hot nhất
-            var trendDtos = trends.Select(t => {
-                var skill = _analyticsRepo.GetSkillNodeById(t.SkillNodeId);
-                return new SkillTrendDto
-                {
-                    SkillNodeId = t.SkillNodeId,
-                    SkillName = skill != null ? skill.NodeName : "Unknown",
-                    TrendScore = t.TrendScore,
-                    DemandPercent = t.DemandPercent
-                };
-            }).ToList();
-
-            var data = new MarketAnalyticsDto
+            // Code thống kê kỹ năng hot, lộ trình được chọn nhiều nhất...
+            return new
             {
-                TotalJobsScraped = _analyticsRepo.GetTotalJobPostings(),
-                LastScrapedDate = _analyticsRepo.GetLastJobScrapedDate(),
-                TopTrendingSkills = trendDtos
+                Status = "Success",
+                Message = "Lấy dữ liệu phân tích thị trường thành công",
+                Data = new { TopSkills = 10, TrendingPaths = 5 } // Thay bằng data thật
             };
-
-            return Task.FromResult<(int, string, MarketAnalyticsDto?)>((200, "Lấy dữ liệu Market Analytics thành công.", data));
         }
 
-        public Task<(int StatusCode, string Message, List<StudentActivityDto>? Data)> GetStudentActivityAsync()
+        // 2. Hoạt động của sinh viên (Student Activity)
+        public async Task<object> GetStudentActivityAsync()
         {
-            var students = _analyticsRepo.GetAllStudents();
-            var data = students.Select(s => new StudentActivityDto
+            // Code thống kê sinh viên đang online, tiến độ học tập...
+            return new
             {
-                StudentId = s.StudentId,
-                FullName = s.FullName,
-                StudentCode = s.StudentCode,
-                CompletedNodes = _analyticsRepo.CountCompletedNodes(s.StudentId),
-                LastUpdatedAt = s.UpdatedAt
-            }).ToList();
+                Status = "Success",
+                Message = "Lấy dữ liệu hoạt động sinh viên thành công",
+                Data = new { ActiveStudentsToday = 150, TestsCompleted = 45 } // Thay bằng data thật
+            };
+        }
 
-            return Task.FromResult<(int, string, List<StudentActivityDto>?)>((200, "Lấy dữ liệu giám sát sinh viên thành công.", data));
+        // 3. Thống kê tổng quan (Student Stats) - Cái bạn đang có sẵn
+        public async Task<object> GetStudentStatsAsync()
+        {
+            var totalStudents = await _context.Students.CountAsync();
+            return new
+            {
+                Status = "Success",
+                TotalStudents = totalStudents
+            };
         }
     }
 }

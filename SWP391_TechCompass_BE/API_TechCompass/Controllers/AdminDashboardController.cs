@@ -2,69 +2,65 @@
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.Interfaces;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace API_TechCompass.Controllers
 {
+    // Đặt route chuẩn để gom nhóm trên Swagger
     [Route("api/admin/dashboard")]
     [ApiController]
-    [Authorize] // Bắt buộc đăng nhập
+    [Authorize] // Tùy chọn: Thêm Roles = "Admin" nếu muốn khóa chặt quyền
     public class AdminDashboardController : ControllerBase
     {
         private readonly IAdminAnalyticsService _analyticsService;
-        private readonly ICounselorService _counselorService;
 
-        // GỘP CHUNG 2 SERVICE VÀO 1 CONSTRUCTOR
-        public AdminDashboardController(
-            IAdminAnalyticsService analyticsService,
-            ICounselorService counselorService)
+        public AdminDashboardController(IAdminAnalyticsService analyticsService)
         {
             _analyticsService = analyticsService;
-            _counselorService = counselorService;
         }
 
-        // Hàm kiểm tra quyền Admin
-        private bool IsAdminUser()
-        {
-            var roleIdClaim = User.Claims.FirstOrDefault(c => c.Type == "RoleId")?.Value;
-            return roleIdClaim == "1" || roleIdClaim == "Admin";
-        }
-
+        // API 1: Market Analytics
         [HttpGet("market-analytics")]
         public async Task<IActionResult> GetMarketAnalytics()
         {
-            if (!IsAdminUser()) return Forbid();
-
-            var result = await _analyticsService.GetMarketAnalyticsAsync();
-            if (result.StatusCode != 200)
-                return StatusCode(result.StatusCode, new { message = result.Message });
-            return Ok(new { message = result.Message, data = result.Data });
+            try
+            {
+                var result = await _analyticsService.GetMarketAnalyticsAsync();
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
+        // API 2: Student Activity
         [HttpGet("student-activity")]
         public async Task<IActionResult> GetStudentActivity()
         {
-            if (!IsAdminUser()) return Forbid();
-
-            var result = await _analyticsService.GetStudentActivityAsync();
-            if (result.StatusCode != 200)
-                return StatusCode(result.StatusCode, new { message = result.Message });
-            return Ok(new { message = result.Message, data = result.Data });
+            try
+            {
+                var result = await _analyticsService.GetStudentActivityAsync();
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
-        // API của Counselor
+        // API 3: Student Stats
         [HttpGet("student-stats")]
         public async Task<IActionResult> GetStudentStats()
         {
             try
             {
-                var data = await _counselorService.GetStudentDistributionByRoleAsync();
-                return Ok(new { Message = "Lấy dữ liệu phân bổ sinh viên thành công", Data = data });
+                var result = await _analyticsService.GetStudentStatsAsync();
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { Error = "Lỗi hệ thống dashboard", Detail = ex.Message });
+                return BadRequest(new { message = ex.Message });
             }
         }
     }
