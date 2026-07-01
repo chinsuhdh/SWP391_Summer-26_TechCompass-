@@ -6,7 +6,8 @@ namespace Service_TechCompass.Interfaces
 {
     public interface IAdminAnalyticsService
     {
-        Task<(int StatusCode, string Message, MarketAnalyticsDto? Data)> GetMarketAnalyticsAsync();
-        Task<(int StatusCode, string Message, List<StudentActivityDto>? Data)> GetStudentActivityAsync();
+        Task<object> GetMarketAnalyticsAsync();
+        Task<object> GetStudentActivityAsync();
+        Task<object> GetStudentStatsAsync();
     }
 }

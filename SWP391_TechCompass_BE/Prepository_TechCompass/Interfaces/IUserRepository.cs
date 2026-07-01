@@ -27,6 +27,11 @@ namespace Repository_TechCompass.Interfaces
         Mentor? GetMentorByUserId(Guid userId);
         Counselor? GetCounselorByUserId(Guid userId);
         User? GetUserById(Guid userId);
+
+        Student? GetStudentByUserId(Guid userId);
+        Mentor? GetMentorByUserId(Guid userId);
+        Counselor? GetCounselorByUserId(Guid userId);
+
         void UpdateStudent(Student student);
         User GetUserByEmail(string email);
         bool EmailExists(string email);
