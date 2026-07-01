@@ -6,12 +6,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs.Assessment;
 using Service_TechCompass.Interfaces;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace Service_TechCompass.Services
 {
@@ -25,17 +26,21 @@ namespace Service_TechCompass.Services
         private readonly IChatCompletionService _geminiService;
         private readonly IChatCompletionService _openAiAnalyzer;
 
+        private readonly Swp391CareerRoadmapContext _context;
+
         public AssessmentService(
             IAssessmentRepository repository,
             HttpClient httpClient,
             IConfiguration configuration,
             Kernel kernel,
-            IQuizSyncService quizSyncService)
+            IQuizSyncService quizSyncService,
+            Swp391CareerRoadmapContext context)
         {
             _repository = repository;
             _httpClient = httpClient;
             _configuration = configuration;
             _quizSyncService = quizSyncService;
+            _context = context;
 
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
             _openAiAnalyzer = kernel.GetRequiredService<IChatCompletionService>("OpenAiCodeAnalyzer");
@@ -618,44 +623,32 @@ Cấu trúc JSON bắt buộc:
         // ==========================================
         // KHAI BÁO NĂNG LỰC ĐẦU VÀO (FR3.1)
         // ==========================================
+        // Sửa lại đoạn logic trong SaveSelfDeclaredSkillsAsync
         public async Task<bool> SaveSelfDeclaredSkillsAsync(Guid studentId, List<int> acquiredSkillNodeIds)
         {
+            // Sử dụng Transaction để bảo đảm an toàn dữ liệu
+            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Lấy toàn bộ lịch sử các bài đã làm (kể cả thi thật và khai báo)
                 var allHistory = await _repository.GetAssessmentSessionsByStudentAsync(studentId);
-
-                // Lọc ra danh sách các bài TỰ KHAI BÁO trước đây
                 var existingDeclaredSessions = allHistory.Where(h => h.AssessmentType == "SELF_DECLARED").ToList();
                 var nodesToKeep = acquiredSkillNodeIds ?? new List<int>();
 
-                // 2. TÌM VÀ XÓA CÁC BÀI USER ĐÃ BỎ TICK
+                // Xóa các session cũ
                 foreach (var session in existingDeclaredSessions)
                 {
                     if (!nodesToKeep.Contains(session.SkillNodeId))
                     {
-                        // Gọi repo xóa session này
                         await _repository.DeleteAssessmentSessionAsync(session.SessionId);
                     }
                 }
 
-                // 3. TÌM VÀ THÊM MỚI CÁC BÀI USER VỪA TICK
+                // Thêm session mới
                 var existingDeclaredNodeIds = existingDeclaredSessions.Select(s => s.SkillNodeId).ToList();
-
                 foreach (var nodeId in nodesToKeep)
                 {
-                    // Nếu kỹ năng này đã được khai báo từ trước -> Bỏ qua
                     if (existingDeclaredNodeIds.Contains(nodeId)) continue;
 
-                    // Nếu user ĐÃ THI THẬT và được điểm cao -> Bỏ qua, tôn trọng kết quả thực tế
-                    var passedTest = allHistory.FirstOrDefault(h =>
-                        h.SkillNodeId == nodeId &&
-                        h.AssessmentType == "TESTED" &&
-                        (h.TotalQuizScore + h.TotalCodeScore) >= 10);
-
-                    if (passedTest != null) continue;
-
-                    // Tạo session giả lập với cờ SELF_DECLARED
                     var newSession = new AssessmentSession
                     {
                         SessionId = Guid.NewGuid(),
@@ -666,14 +659,17 @@ Cấu trúc JSON bắt buộc:
                         AssessmentType = "SELF_DECLARED",
                         TakenAt = DateTime.Now
                     };
-
                     await _repository.SaveAssessmentSessionAsync(newSession);
                 }
 
+                // Commit toàn bộ nếu thành công
+                await transaction.CommitAsync();
                 return true;
             }
             catch (Exception)
             {
+                // Lỗi thì hủy bỏ toàn bộ thao tác tránh rác DB
+                await transaction.RollbackAsync();
                 throw;
             }
         }

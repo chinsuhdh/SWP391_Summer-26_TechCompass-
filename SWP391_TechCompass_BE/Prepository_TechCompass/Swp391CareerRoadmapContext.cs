@@ -46,6 +46,9 @@ public partial class Swp391CareerRoadmapContext : DbContext
     public virtual DbSet<AssessmentQuizDetail> AssessmentQuizDetails { get; set; }
     public virtual DbSet<AssessmentCodeDetail> AssessmentCodeDetails { get; set; }
 
+
+    public virtual DbSet<Counselor> Counselors { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (!optionsBuilder.IsConfigured)
@@ -756,6 +759,38 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasForeignKey<AssessmentCodeDetail>(d => d.SessionId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_codedetail_session");
+        });
+
+        modelBuilder.Entity<Counselor>(entity =>
+        {
+            entity.HasKey(e => e.CounselorId).HasName("PK__counselors");
+            entity.ToTable("counselors");
+
+            // Đảm bảo quan hệ 1-1 với User
+            entity.HasIndex(e => e.UserId, "UQ__counselors__user_id").IsUnique();
+
+            entity.Property(e => e.CounselorId)
+                .ValueGeneratedNever()
+                .HasColumnName("counselor_id");
+
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.Property(e => e.FullName)
+                .HasMaxLength(100)
+                .HasColumnName("full_name");
+
+            entity.Property(e => e.Department)
+                .HasMaxLength(100)
+                .HasColumnName("department");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.User).WithOne() 
+                .HasForeignKey<Counselor>(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_counselor_user");
         });
 
         OnModelCreatingPartial(modelBuilder);

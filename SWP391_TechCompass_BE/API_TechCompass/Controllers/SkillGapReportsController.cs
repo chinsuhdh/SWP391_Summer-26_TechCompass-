@@ -23,10 +23,12 @@ namespace API_TechCompass.Controllers
             _counselorService = counselorService;
         }
 
-        // BỔ SUNG: Endpoint lấy dữ liệu JSON Skill Gap hiển thị lên biểu đồ Radar ở Frontend
-        [HttpGet("{studentId}/generate")]
+        // ==========================================
+        // 1. ENDPOINT GET: Chỉ lấy dữ liệu hiển thị (Không ghi DB)
+        // ==========================================
+        [HttpGet("{studentId}/skill-gap")]
         [Authorize]
-        public async Task<IActionResult> GenerateReport(Guid studentId)
+        public async Task<IActionResult> GetSkillGap(Guid studentId)
         {
             try
             {
@@ -46,7 +48,33 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // Endpoint 1: Xuất file PDF kết quả Skill Gap của từng sinh viên
+        // ==========================================
+        // 2. ENDPOINT POST: Lưu snapshot báo cáo của ngày hôm nay
+        // ==========================================
+        [HttpPost("{studentId}/skill-gap/save-snapshot")]
+        [Authorize]
+        public async Task<IActionResult> SaveSkillGapSnapshot(Guid studentId)
+        {
+            try
+            {
+                var (statusCode, message) = await _reportService.SaveDailySkillGapReportAsync(studentId);
+
+                if (statusCode == 200)
+                {
+                    return Ok(new { Message = message });
+                }
+
+                return StatusCode(statusCode, new { Message = message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Lỗi khi lưu báo cáo: {ex.Message}" });
+            }
+        }
+
+        // ==========================================
+        // 3. Xuất file PDF kết quả Skill Gap của từng sinh viên
+        // ==========================================
         [HttpGet("{studentId}/export-pdf")]
         [Authorize]
         public async Task<IActionResult> ExportPdf(Guid studentId)
@@ -56,7 +84,7 @@ namespace API_TechCompass.Controllers
                 // Gọi đúng tầng Service đã được gán giá trị ở Constructor
                 var reportData = await _reportService.GetSkillGapDataAsync(studentId);
 
-                // Generate PDF thành mảng byte bằng QuestPDF (Xử lý đồng bộ, không dùng Hangfire)
+                // Generate PDF thành mảng byte bằng QuestPDF
                 byte[] pdfBytes = await _reportService.GeneratePdfReportAsync(reportData);
 
                 string fileName = $"SkillGapReport_{studentId}_{DateTime.Now:yyyyMMdd}.pdf";
@@ -68,7 +96,9 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // Endpoint 2: Phân tích lỗ hổng kiến thức diện rộng diện toàn khóa (Cohort Analysis)
+        // ==========================================
+        // 4. Phân tích lỗ hổng kiến thức diện rộng diện toàn khóa (Cohort Analysis)
+        // ==========================================
         [HttpGet("cohort-analysis")]
         [Authorize(Roles = "Counselor,Admin")]
         public async Task<IActionResult> GetCohortAnalysis([FromQuery] int top = 3)

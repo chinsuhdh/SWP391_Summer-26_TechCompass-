@@ -20,9 +20,8 @@ namespace Service_TechCompass.Services
     {
         private readonly IUserRepository _userRepo;
         private readonly IChatCompletionService _chatCompletionService;
-        private readonly IHubContext<RoadmapNotificationHub> _hubContext; // ĐÃ THÊM: SignalR Hub
+        private readonly IHubContext<RoadmapNotificationHub> _hubContext;
 
-        // ĐÃ THÊM: Inject IHubContext vào Constructor
         public StudentProfileService(
             IUserRepository userRepo,
             Kernel kernel,
@@ -33,31 +32,93 @@ namespace Service_TechCompass.Services
             _hubContext = hubContext;
         }
 
-        public Task<(int StatusCode, string Message, UserStudentProfileDto? Data)> GetProfileAsync(Guid userId)
+        public async Task<(int StatusCode, string Message, object? Data)> GetProfileAsync(Guid userId)
         {
-            var user = _userRepo.GetUserById(userId);
-            var student = _userRepo.GetStudentByUserId(userId);
-
-            if (user == null || student == null)
+            // Sử dụng await bất đồng bộ thực sự
+            var user = await _userRepo.GetUserByIdAsync(userId);
+            if (user == null)
             {
-                return Task.FromResult<(int, string, UserStudentProfileDto?)>((404, "Không tìm thấy hồ sơ người dùng.", null));
+                return (404, "Không tìm thấy tài khoản người dùng.", null);
             }
 
-            var profileData = new UserStudentProfileDto
+            var baseProfile = new
             {
                 UserId = user.UserId,
                 Email = user.Email,
-                FullName = student.FullName,
-                StudentCode = student.StudentCode,
-                LatentTalentSummary = student.LatentTalentSummary,
-                TargetRoleId = student.TargetRoleId,
-                UpdatedAt = student.UpdatedAt
+                RoleId = user.RoleId,
+                RoleName = user.RoleId switch
+                {
+                    1 => "Admin",
+                    2 => "Student",
+                    3 => "Mentor",
+                    4 => "Counselor",
+                    _ => "User"
+                }
             };
 
-            return Task.FromResult<(int, string, UserStudentProfileDto?)>((200, "Lấy thông tin thành công.", profileData));
+            switch (user.RoleId)
+            {
+                case 1: // Admin
+                    return (200, "Lấy thông tin Admin thành công.", new
+                    {
+                        User = baseProfile,
+                        Details = new { FullName = "System Administrator" }
+                    });
+
+                case 2: // Student
+                    var student = await _userRepo.GetStudentByUserIdAsync(userId);
+                    if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+
+                    // ĐÃ SỬA & LÀM PHẲNG: Không chia User/Details nữa để FE mapping trực tiếp ăn ngay dữ liệu
+                    return (200, "Lấy thông tin Sinh viên thành công.", new
+                    {
+                        UserId = user.UserId,
+                        Email = user.Email,
+                        RoleId = user.RoleId,
+                        RoleName = "Student",
+                        FullName = student.FullName,
+                        StudentCode = student.StudentCode,
+                        LatentTalentSummary = student.LatentTalentSummary,
+                        TargetRoleId = student.TargetRoleId,
+                        UpdatedAt = student.UpdatedAt
+                    });
+
+                case 3: // Mentor
+                    var mentor = await _userRepo.GetMentorByUserIdAsync(userId);
+                    if (mentor == null) return (404, "Không tìm thấy hồ sơ Mentor.", null);
+
+                    return (200, "Lấy thông tin Mentor thành công.", new
+                    {
+                        User = baseProfile,
+                        Details = new
+                        {
+                            FullName = mentor.FullName,
+                            ExpertiseTags = mentor.ExpertiseTags,
+                            CurrentCompany = mentor.CurrentCompany,
+                            LinkedinUrl = mentor.LinkedinUrl
+                        }
+                    });
+
+                case 4: // Counselor
+                    var counselor = await _userRepo.GetCounselorByUserIdAsync(userId);
+                    if (counselor == null) return (404, "Không tìm thấy hồ sơ Counselor.", null);
+
+                    return (200, "Lấy thông tin Counselor thành công.", new
+                    {
+                        User = baseProfile,
+                        Details = new
+                        {
+                            FullName = counselor.FullName,
+                            Department = counselor.Department,
+                            UpdatedAt = counselor.UpdatedAt
+                        }
+                    });
+
+                default:
+                    return (200, "Lấy thông tin thành công.", new { User = baseProfile });
+            }
         }
 
-        // ĐÃ SỬA: Đổi thành async Task để có thể await SignalR
         public async Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request)
         {
             var student = _userRepo.GetStudentByUserId(userId);
@@ -66,7 +127,6 @@ namespace Service_TechCompass.Services
                 return (404, "Không tìm thấy hồ sơ sinh viên để cập nhật.");
             }
 
-            // ĐÃ THÊM: Kiểm tra xem Target Role có bị thay đổi không
             bool isRoleChanged = student.TargetRoleId != request.TargetRoleId;
 
             student.FullName = request.FullName;
@@ -80,7 +140,6 @@ namespace Service_TechCompass.Services
                 _userRepo.UpdateStudent(student);
                 _userRepo.SaveChanges();
 
-                // ĐÃ THÊM: Bắn tín hiệu Real-time nếu Role thay đổi
                 if (isRoleChanged)
                 {
                     await _hubContext.Clients.Group($"roadmap_user_{userId}").SendAsync("TargetRoleChanged", new
@@ -114,7 +173,6 @@ namespace Service_TechCompass.Services
             {
                 string extractedText = string.Empty;
 
-                // 1. Đọc nội dung file PDF thành Text bằng UglyToad.PdfPig
                 using (var stream = file.OpenReadStream())
                 {
                     using (var document = PdfDocument.Open(stream))
@@ -131,7 +189,6 @@ namespace Service_TechCompass.Services
                     return (400, "Không thể đọc được chữ từ file PDF. Đảm bảo đây không phải là file ảnh PDF được scan.", null);
                 }
 
-                // 2. Dùng AI (Gemini) để bóc tách thông tin thành JSON
                 var chatHistory = new ChatHistory();
                 chatHistory.AddSystemMessage(@"Bạn là hệ thống phân tích học bạ sinh viên chuyên ngành Software Engineering. 
 Nhiệm vụ của bạn là trích xuất các môn học liên quan đến lập trình, IT (đặc biệt chú ý các mã môn học như PRN, SWD, PRJ, v.v.), và điểm số tương ứng.
@@ -147,10 +204,8 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
                 var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
                 string jsonResponse = response.ToString() ?? "";
 
-                // Làm sạch chuỗi JSON phòng trường hợp AI vẫn trả về thẻ markdown
                 jsonResponse = jsonResponse.Replace("```json", "").Replace("```", "").Trim();
 
-                // 3. Phân tích JSON và cập nhật vào Database
                 using var jsonDoc = JsonDocument.Parse(jsonResponse);
                 var root = jsonDoc.RootElement;
 
@@ -158,7 +213,6 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
                                     ? summaryElement.GetString() ?? ""
                                     : "";
 
-                // Cập nhật nhận xét của AI vào trường LatentTalentSummary của Student
                 student.LatentTalentSummary = string.IsNullOrEmpty(student.LatentTalentSummary)
                                                 ? aiSummary
                                                 : student.LatentTalentSummary + "\n" + aiSummary;
@@ -167,7 +221,6 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
                 _userRepo.UpdateStudent(student);
                 _userRepo.SaveChanges();
 
-                // Chuyển chuỗi JSON thành object vô danh để trả về cho Client dễ đọc
                 var resultData = JsonSerializer.Deserialize<object>(jsonResponse);
 
                 return (200, "Phân tích bảng điểm thành công.", resultData);

@@ -216,9 +216,7 @@ namespace Service_TechCompass.Services
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var student = _userRepo.GetStudentByUserId(user.UserId);
-
-            // BƯỚC 1: Dịch RoleId sang tên chuẩn
+            // 1. Dịch RoleId sang tên chuẩn
             var roleName = user.RoleId switch
             {
                 1 => "Admin",
@@ -229,21 +227,50 @@ namespace Service_TechCompass.Services
             };
 
             var claims = new List<Claim>
-            {
-                new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                new Claim("RoleId", user.RoleId.ToString()), 
-                
-                // BƯỚC 2: Nhúng chuẩn Role của ASP.NET Core vào JWT để fix triệt để lỗi 403
-                new Claim(ClaimTypes.Role, roleName),
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email),
+        new Claim("RoleId", user.RoleId.ToString()),
+        new Claim(ClaimTypes.Role, roleName), // Giữ nguyên để fix 403 authorization
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+    };
 
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-            };
-
-            if (student != null)
+            // 2. Dynamic Inject Claims dựa trên từng Role thực tế
+            switch (user.RoleId)
             {
-                claims.Add(new Claim("StudentId", student.StudentId.ToString()));
-                claims.Add(new Claim("FullName", student.FullName ?? ""));
+                case 1: // Admin
+                        // Nếu bạn có bảng Admin riêng thì gọi Repo lấy ra, nếu không thì lấy mặc định tên "System Admin"
+                    claims.Add(new Claim("FullName", "System Administrator"));
+                    break;
+
+                case 2: // Student
+                    var student = _userRepo.GetStudentByUserId(user.UserId);
+                    if (student != null)
+                    {
+                        claims.Add(new Claim("StudentId", student.StudentId.ToString()));
+                        claims.Add(new Claim("FullName", student.FullName ?? ""));
+                    }
+                    break;
+
+                case 3: // Mentor
+                        // Giả định bạn có hàm GetMentorByUserId trong _userRepo
+                    var mentor = _userRepo.GetMentorByUserId(user.UserId);
+                    if (mentor != null)
+                    {
+                        claims.Add(new Claim("MentorId", mentor.MentorId.ToString()));
+                        claims.Add(new Claim("FullName", mentor.FullName ?? ""));
+                    }
+                    break;
+
+                case 4: // Counselor
+                        // Giả định bạn có hàm GetCounselorByUserId trong _userRepo
+                    var counselor = _userRepo.GetCounselorByUserId(user.UserId);
+                    if (counselor != null)
+                    {
+                        claims.Add(new Claim("CounselorId", counselor.CounselorId.ToString()));
+                        claims.Add(new Claim("FullName", counselor.FullName ?? ""));
+                    }
+                    break;
             }
 
             var token = new JwtSecurityToken(

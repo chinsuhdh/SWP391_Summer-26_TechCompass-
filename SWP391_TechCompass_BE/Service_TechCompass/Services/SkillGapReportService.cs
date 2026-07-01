@@ -88,11 +88,29 @@ namespace Service_TechCompass.Services
                 details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
             );
 
-            // ==========================================
-            // ĐÃ BỔ SUNG LỆNH LƯU DATABASE TẠI ĐÂY
-            // ==========================================
+            // TẤT CẢ LOGIC LƯU DB Ở ĐÂY ĐÃ BỊ XÓA BỎ ĐỂ ĐẢM BẢO CHUẨN RESTFUL
+
+            return new SkillGapReportData
+            {
+                StudentId = studentId,
+                TargetRoleName = targetRoleName,
+                LatentTalentSummary = aiSummary,
+                GapItems = resultList
+            };
+        }
+
+        // 2. BỔ SUNG HÀM POST: CHỈ GỌI KHI CẦN LƯU BÁO CÁO
+        public async Task<(int StatusCode, string Message)> SaveDailySkillGapReportAsync(Guid studentId)
+        {
             try
             {
+                var student = await _context.Students.FindAsync(studentId);
+                if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.");
+
+                string aiSummary = !string.IsNullOrWhiteSpace(student.LatentTalentSummary)
+                                    ? student.LatentTalentSummary
+                                    : "Hệ thống đang thu thập thêm dữ liệu để đưa ra nhận xét chính xác về bạn.";
+
                 DateTime today = DateTime.Now.Date;
 
                 var todayReport = await _context.SkillGapReports
@@ -112,22 +130,17 @@ namespace Service_TechCompass.Services
                     };
                     _context.SkillGapReports.Add(newReport);
                     await _context.SaveChangesAsync();
+
+                    return (200, "Đã lưu thành công bản tóm tắt phân tích năng lực hôm nay.");
                 }
+
+                return (200, "Báo cáo của hôm nay đã tồn tại, không cần tạo mới.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Lỗi lưu Report]: {ex.Message}");
-                // Vẫn cho code tiếp tục chạy để không chết luồng hiển thị giao diện
+                return (500, "Lỗi hệ thống khi lưu báo cáo.");
             }
-            // ==========================================
-
-            return new SkillGapReportData
-            {
-                StudentId = studentId,
-                TargetRoleName = targetRoleName,
-                LatentTalentSummary = aiSummary,
-                GapItems = resultList
-            };
         }
 
         public async Task<byte[]> GeneratePdfReportAsync(object reportData)

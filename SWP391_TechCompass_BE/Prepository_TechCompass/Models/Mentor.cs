@@ -9,6 +9,8 @@ public partial class Mentor
 
     public Guid UserId { get; set; }
 
+    public string? FullName { get; set; }
+
     public string? CurrentCompany { get; set; }
 
     public string? ExpertiseTags { get; set; }

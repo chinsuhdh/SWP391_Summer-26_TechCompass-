@@ -21,10 +21,14 @@ namespace Service_TechCompass.DTOs
         public string? Description { get; set; }
         public int? PriorityLevel { get; set; }
 
-        // --- BỔ SUNG 3 DÒNG DƯỚI ĐÂY ĐỂ FIX LỖI CHO ROADMAP ---
+        // --- BỔ SUNG ĐỂ FIX LỖI CHO ROADMAP ---
         public int NodeId { get; set; }
         public bool IsCompleted { get; set; }
         public bool IsLocked { get; set; }
+
+        // --- BỔ SUNG CHO NGHIỆP VỤ MARKET PULSE (TRENDING) ---
+        public bool IsTrending { get; set; }
+        public decimal? CurrentTrendScore { get; set; }
     }
 
     public class LearningResourceDto

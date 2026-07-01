@@ -35,11 +35,9 @@ namespace Service_TechCompass.Services
         public async Task<(int StatusCode, string Message, List<SkillNodeDto>? Data)> GetSkillTreeAsync(Guid userId)
         {
             var student = _userRepo.GetStudentByUserId(userId);
-            if (student == null)
-            {
-                return (404, "Không tìm thấy hồ sơ sinh viên.", null);
-            }
+            if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.", null);
 
+            // 1. Query danh sách các Node trong Roadmap của sinh viên (Logic cũ)
             var query = from p in _context.RoadmapProgresses
                         join n in _context.SkillNodes on p.SkillNodeId equals n.SkillNodeId
                         where p.StudentId == student.StudentId
@@ -47,11 +45,37 @@ namespace Service_TechCompass.Services
                         select new { p, n };
 
             var studentNodes = await query.ToListAsync();
+
+            // ========================================================
+            // 2. LOGIC MỚI: QUERY "NHỊP ĐẬP THỊ TRƯỜNG" TRONG 30 NGÀY QUA
+            // ========================================================
+            var thirtyDaysAgo = DateOnly.FromDateTime(DateTime.Now.AddDays(-30));
+
+            // Lấy điểm Trend trung bình của các Skill trong 30 ngày qua
+            var recentTrends = await _context.TrendAnalyses
+                .Where(t => t.AnalyzedDate >= thirtyDaysAgo)
+                .GroupBy(t => t.SkillNodeId)
+                .Select(g => new
+                {
+                    SkillNodeId = g.Key,
+                    AverageTrendScore = g.Average(x => x.TrendScore)
+                })
+                .ToDictionaryAsync(k => k.SkillNodeId, v => v.AverageTrendScore);
+
+            // Ngưỡng để xác định một skill đang "Hot" (Ví dụ: Trend Score từ 2.5 trở lên)
+            const decimal HOT_TREND_THRESHOLD = 2.5m;
+
             var skillTree = new List<SkillNodeDto>();
 
+            // 3. Map dữ liệu trả về cho Frontend
             foreach (var item in studentNodes)
             {
                 var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, item.n.SkillNodeId);
+
+                // Kiểm tra xem kỹ năng này có đang nằm trong Top Trending không
+                decimal currentScore = recentTrends.ContainsKey(item.n.SkillNodeId)
+                                        ? (recentTrends[item.n.SkillNodeId] ?? 0)
+                                        : 0;
 
                 skillTree.Add(new SkillNodeDto
                 {
@@ -60,7 +84,11 @@ namespace Service_TechCompass.Services
                     Description = item.n.Description,
                     ParentNodeId = item.n.ParentNodeId,
                     IsCompleted = (item.p.Status == "Completed"),
-                    IsLocked = !validation.IsValid
+                    IsLocked = !validation.IsValid,
+
+                    // MAP CỜ TRENDING VÀO ĐÂY CHO FRONTEND
+                    IsTrending = currentScore >= HOT_TREND_THRESHOLD,
+                    CurrentTrendScore = Math.Round(currentScore, 2)
                 });
             }
 
