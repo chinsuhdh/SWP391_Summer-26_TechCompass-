@@ -12,9 +12,8 @@ namespace API_TechCompass.Controllers
     public class AssessmentsController : ControllerBase
     {
         private readonly IAssessmentService _assessmentService;
-        private readonly IRoadmapEngineService _roadmapEngineService; // BỔ SUNG DI ENGINE
+        private readonly IRoadmapEngineService _roadmapEngineService;
 
-        // INJECT VÀO CONSTRUCTOR
         public AssessmentsController(
             IAssessmentService assessmentService,
             IRoadmapEngineService roadmapEngineService)
@@ -23,7 +22,6 @@ namespace API_TechCompass.Controllers
             _roadmapEngineService = roadmapEngineService;
         }
 
-        // Endpoint 1: Lấy đề thi trắc nghiệm
         // GET: api/assessments/quiz/{skillNodeId}
         [HttpGet("quiz/{skillNodeId}")]
         public async Task<IActionResult> GetQuiz(int skillNodeId)
@@ -40,28 +38,26 @@ namespace API_TechCompass.Controllers
         }
 
         // POST: api/assessments/submit-exam
+        // ĐÃ THÊM: [FromQuery] isPlacementTest để phân nhánh luồng nghiệp vụ
         [HttpPost("submit-exam")]
-        public async Task<IActionResult> SubmitFullExam([FromBody] SubmitFullExamDto submission)
+        public async Task<IActionResult> SubmitFullExam([FromBody] SubmitFullExamDto submission, [FromQuery] bool isPlacementTest = false)
         {
-            // 1. Kiểm tra Body
             if (submission == null)
             {
                 return BadRequest("Dữ liệu nộp bài không hợp lệ (Body rỗng).");
             }
 
-            // 2. Bắt lỗi khóa ngoại StudentId
             if (submission.StudentId == Guid.Empty)
             {
                 return BadRequest("Lỗi: Frontend chưa truyền StudentId.");
             }
 
-            // 3. Bắt lỗi khóa ngoại SkillNodeId
-            if (submission.SkillNodeId <= 0)
+            // Nếu không phải Placement Test thì mới bắt buộc validate SkillNodeId
+            if (!isPlacementTest && submission.SkillNodeId <= 0)
             {
                 return BadRequest("Lỗi: SkillNodeId không hợp lệ (phải lớn hơn 0).");
             }
 
-            // 4. Validate dữ liệu từng phần
             if (submission.QuizAnswers == null || !submission.QuizAnswers.Any())
             {
                 return BadRequest("Lỗi: Không có câu trả lời trắc nghiệm nào được gửi lên.");
@@ -77,17 +73,26 @@ namespace API_TechCompass.Controllers
                 // Chấm và lưu toàn bộ (Bảng Session, QuizDetails, CodeDetails)
                 var result = await _assessmentService.GradeAndSaveFullExamAsync(submission);
 
-                // BƯỚC QUAN TRỌNG NHẤT: ĐỒNG BỘ ĐIỂM SỐ SANG LỘ TRÌNH HỌC TẬP
-                await _roadmapEngineService.SyncProgressAfterAssessmentAsync(
-                    submission.StudentId,
-                    submission.SkillNodeId,
-                    result.TotalQuizScore,
-                    result.TotalCodeScore
-                );
+                // PHÂN NHÁNH ĐỒNG BỘ TIẾN ĐỘ
+                if (isPlacementTest)
+                {
+                    // LUỒNG 1: BÀI TEST TỔNG HỢP ĐẦU VÀO -> Quét hàng loạt Node
+                    await _roadmapEngineService.SyncPlacementTestProgressAsync(submission.StudentId, result.QuizDetails.ToList());
+                }
+                else
+                {
+                    // LUỒNG 2: BÀI TEST TỪNG KỸ NĂNG -> Cập nhật 1 Node
+                    await _roadmapEngineService.SyncProgressAfterAssessmentAsync(
+                        submission.StudentId,
+                        submission.SkillNodeId,
+                        result.TotalQuizScore,
+                        result.TotalCodeScore
+                    );
+                }
 
                 return Ok(new
                 {
-                    Message = "Nộp bài, chấm điểm và cập nhật lộ trình hoàn tất!",
+                    Message = isPlacementTest ? "Hoàn tất bài đánh giá đầu vào. Lộ trình của bạn đã được cá nhân hóa!" : "Nộp bài, chấm điểm và cập nhật lộ trình hoàn tất!",
                     SessionId = result.SessionId,
                     QuizScore = result.TotalQuizScore,
                     CodeScore = result.TotalCodeScore
@@ -116,7 +121,6 @@ namespace API_TechCompass.Controllers
         {
             try
             {
-                // Ví dụ: tags = "Docker", skillNodeId = 5 (ID của node Docker trong DB của bạn)
                 int count = await _quizSyncService.FetchAndSaveQuestionsAsync(skillNodeId, tags, limit);
                 return Ok(new { Message = $"Đồng bộ thành công {count} câu hỏi vào Database." });
             }
@@ -132,9 +136,7 @@ namespace API_TechCompass.Controllers
         {
             try
             {
-                // Gọi API lấy dữ liệu ĐỘNG 100% từ Database
                 var nodes = await _assessmentService.GetAllSkillNodesAsync();
-
                 return Ok(new { Message = "Lấy danh sách Skill Nodes thành công", Data = nodes });
             }
             catch (Exception ex)
@@ -154,7 +156,6 @@ namespace API_TechCompass.Controllers
             }
             catch (Exception ex)
             {
-                // IN LỖI RA CONSOLE ĐỂ BẮT TẬN TAY NẾU AI GẶP VẤN ĐỀ
                 Console.WriteLine("\n================ [LỖI GENERATE EXERCISE] ================");
                 Console.WriteLine(ex.Message);
                 Console.WriteLine("=========================================================\n");
@@ -190,7 +191,6 @@ namespace API_TechCompass.Controllers
         {
             try
             {
-                // Tận dụng hàm GetAssessmentsByStudentAsync đã có sẵn trong Repository
                 var history = await _assessmentService.GetMyAssessmentHistoryListAsync(studentId);
                 return Ok(new { Message = "Lấy danh sách thành công", Data = history });
             }
@@ -216,8 +216,6 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = ex.Message });
             }
         }
-
-        // Thêm 2 API này vào trong AssessmentsController
 
         [HttpGet("quiz/role/{roleId}")]
         public async Task<IActionResult> GetRoleQuiz(int roleId)
@@ -258,10 +256,7 @@ namespace API_TechCompass.Controllers
 
             try
             {
-                // Gọi Service để lưu các kỹ năng user tự khai báo vào bảng StudentSkills hoặc AssessmentSessions với trạng thái 'Self-Declared'
                 await _assessmentService.SaveSelfDeclaredSkillsAsync(request.StudentId, request.AcquiredSkillNodeIds);
-
-                // Kích hoạt lại Roadmap Engine để tính toán lại lộ trình dựa trên vốn liếng mới
                 await _roadmapEngineService.RecalculateRoadmapAsync(request.StudentId);
 
                 return Ok(new { Message = $"Đã ghi nhận {request.AcquiredSkillNodeIds.Count} kỹ năng. Lộ trình đang được cập nhật lại!" });

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
@@ -14,11 +15,12 @@ namespace Service_TechCompass.Services
     {
         private readonly IUserRepository _userRepo;
         private readonly IContentRepository _contentRepo;
-
-        public LearningHubService(IUserRepository userRepo, IContentRepository contentRepo)
+        private readonly Swp391CareerRoadmapContext _context;
+        public LearningHubService(IUserRepository userRepo, IContentRepository contentRepo, Swp391CareerRoadmapContext context)
         {
             _userRepo = userRepo;
             _contentRepo = contentRepo;
+            _context = context;
         }
 
         public async Task<(int StatusCode, string Message, NodeResourcesDto? Data)> GetResourcesByNodeIdAsync(Guid userId, int nodeId)
@@ -101,45 +103,47 @@ namespace Service_TechCompass.Services
         // ==========================================
         // CẬP NHẬT: HÀM LẤY LỘ TRÌNH ĐỘNG THEO NGÀNH CỦA SINH VIÊN
         // ==========================================
+        // Service_TechCompass/Services/LearningHubService.cs
         public async Task<(int StatusCode, string Message, List<SkillNodeDto>? Data)> GetMyRoadmapAsync(Guid userId)
         {
             var student = _userRepo.GetStudentByUserId(userId);
-            if (student == null)
-            {
-                return (404, "Không tìm thấy hồ sơ sinh viên.", null);
-            }
+            if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+            if (student.TargetRoleId == null || student.TargetRoleId == 0) return (400, "Chưa định hướng ngành.", null);
 
-            // 1. Sinh viên chưa chọn ngành (Bước vào lần đầu)
-            if (student.TargetRoleId == null || student.TargetRoleId == 0)
-            {
-                return (400, "Sinh viên chưa định hướng ngành nghề. Vui lòng chọn ngành nghề trước.", null);
-            }
-
-            // 2. Tìm TechPath tương ứng với Role của sinh viên
             var techPath = _contentRepo.GetAllTechPaths().FirstOrDefault(tp => tp.TargetRoleId == student.TargetRoleId);
+            if (techPath == null) return (404, "Chưa có lộ trình chuẩn.", null);
 
-            if (techPath == null)
-            {
-                return (404, "Hệ thống chưa có lộ trình chuẩn cho ngành nghề bạn chọn.", null);
-            }
-
-            // 3. Lấy đúng các Node thuộc về ngành nghề đó
             var nodes = _contentRepo.GetAllSkillNodes()
                 .Where(n => n.TechPathId == techPath.TechPathId)
                 .OrderBy(n => n.PriorityLevel)
                 .ToList();
 
+            // =======================================================
+            // FIX: LẤY DANH SÁCH HOT SKILLS TỪ BẢNG TREND_ANALYSIS
+            // Giả sử: Kỹ năng có TrendScore >= 3.0 được coi là HOT
+            // =======================================================
+            var recentHotSkills = _context.TrendAnalyses // (Nhớ inject Swp391CareerRoadmapContext vào Service nhé)
+                .Where(t => t.TrendScore >= 1.0m)
+                .GroupBy(t => t.SkillNodeId)
+                .Select(g => new
+                {
+                    SkillNodeId = g.Key,
+                    MaxScore = g.Max(t => t.TrendScore)
+                })
+                .ToDictionary(x => x.SkillNodeId, x => x.MaxScore);
+
             var roadmap = new List<SkillNodeDto>();
-            bool isPreviousCompleted = true; // Node đầu tiên mặc định luôn mở
+            bool isPreviousCompleted = true;
 
             foreach (var node in nodes)
             {
-                // Khớp tiến độ thực tế (Đã được Assessment ghi nhận)
                 var progress = await _contentRepo.GetRoadmapProgressAsync(student.StudentId, node.SkillNodeId);
-
-                // Dùng StringComparison.OrdinalIgnoreCase để tránh lỗi chữ hoa/chữ thường trong DB ("completed" vs "Completed")
                 bool isCompleted = progress != null && progress.Status.Equals("completed", StringComparison.OrdinalIgnoreCase);
                 bool isLocked = !isPreviousCompleted && progress == null;
+
+                // KIỂM TRA XEM NODE CÓ NẰM TRONG DICTIONARY HOT SKILL KHÔNG
+                bool isTrending = recentHotSkills.ContainsKey(node.SkillNodeId);
+                decimal trendScore = isTrending ? recentHotSkills[node.SkillNodeId].GetValueOrDefault() : 0;
 
                 roadmap.Add(new SkillNodeDto
                 {
@@ -149,10 +153,13 @@ namespace Service_TechCompass.Services
                     NodeName = node.NodeName,
                     Description = node.Description,
                     PriorityLevel = node.PriorityLevel,
-
                     NodeId = node.SkillNodeId,
                     IsCompleted = isCompleted,
-                    IsLocked = isLocked
+                    IsLocked = isLocked,
+
+                    // GÁN GIÁ TRỊ VÀO DTO ĐỂ TRẢ VỀ FRONTEND
+                    IsTrending = isTrending,
+                    CurrentTrendScore = trendScore
                 });
 
                 isPreviousCompleted = isCompleted;

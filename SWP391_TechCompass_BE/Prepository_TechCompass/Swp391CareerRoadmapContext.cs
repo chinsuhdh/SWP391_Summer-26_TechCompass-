@@ -588,6 +588,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .IsUnicode(false)
                 .HasColumnName("difficulty_level");
 
+
             entity.HasOne(d => d.SkillNode).WithMany(p => p.AssessmentQuestions)
                 .HasForeignKey(d => d.SkillNodeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -657,6 +658,11 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasMaxLength(20)
                 .IsUnicode(false)
                 .HasColumnName("difficulty_level");
+
+            entity.Property(e => e.Language)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasColumnName("language");
 
             entity.HasOne(d => d.SkillNode).WithMany(p => p.CodingExercises)
                 .HasForeignKey(d => d.SkillNodeId)

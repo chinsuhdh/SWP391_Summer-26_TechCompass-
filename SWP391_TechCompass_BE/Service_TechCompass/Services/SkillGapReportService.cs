@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using Repository_TechCompass;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
-using Service_TechCompass.DTOs;
-using Service_TechCompass.Interfaces;
 using Service_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
@@ -20,18 +19,23 @@ namespace Service_TechCompass.Services
         public string TargetRoleName { get; set; } = string.Empty;
         public string LatentTalentSummary { get; set; } = string.Empty;
         public List<SkillGapItemDto> GapItems { get; set; } = new List<SkillGapItemDto>();
-        public Guid StudentId { get; set; } // ĐÃ THÊM: Lưu lại StudentId để truyền xuống hàm GeneratePDF
+        public Guid StudentId { get; set; }
     }
 
     public class SkillGapReportService : ISkillGapReportService
     {
         private readonly Swp391CareerRoadmapContext _context;
-        private readonly ITelemetryService _telemetryService; // ĐÃ THÊM: Inject Queue
+        private readonly ITelemetryService _telemetryService;
+        private readonly IMemoryCache _cache;
 
-        public SkillGapReportService(Swp391CareerRoadmapContext context, ITelemetryService telemetryService)
+        public SkillGapReportService(
+            Swp391CareerRoadmapContext context,
+            ITelemetryService telemetryService,
+            IMemoryCache cache)
         {
             _context = context;
             _telemetryService = telemetryService;
+            _cache = cache;
         }
 
         public async Task<object> GetSkillGapDataAsync(Guid studentId)
@@ -42,7 +46,8 @@ namespace Service_TechCompass.Services
                 return new SkillGapReportData { GapItems = new List<SkillGapItemDto>() };
             }
 
-            var role = await _context.Roles.FindAsync(student.TargetRoleId);
+            var role = await _context.TargetCareerRoles.FindAsync(student.TargetRoleId);
+
             string targetRoleName = role != null ? role.RoleName : $"Role ID: {student.TargetRoleId}";
 
             string aiSummary = !string.IsNullOrWhiteSpace(student.LatentTalentSummary)
@@ -80,15 +85,21 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            await _telemetryService.LogLearningHistoryAsync(
-                studentId: studentId,
-                progressId: Guid.Empty,
-                actionType: "VIEW_SKILL_GAP",
-                durationSeconds: 0,
-                details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
-            );
+            // LOGIC COOLDOWN: Chặn spam log VIEW_SKILL_GAP vào Database
+            string cacheKey = $"ViewSkillGapLog_{studentId}";
+            if (!_cache.TryGetValue(cacheKey, out _))
+            {
+                await _telemetryService.LogLearningHistoryAsync(
+                    studentId: studentId,
+                    progressId: Guid.Empty,
+                    actionType: "VIEW_SKILL_GAP",
+                    durationSeconds: 0,
+                    details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
+                );
 
-            // TẤT CẢ LOGIC LƯU DB Ở ĐÂY ĐÃ BỊ XÓA BỎ ĐỂ ĐẢM BẢO CHUẨN RESTFUL
+                // Set thời gian chờ là 30 phút. 
+                _cache.Set(cacheKey, true, TimeSpan.FromMinutes(30));
+            }
 
             return new SkillGapReportData
             {
@@ -99,7 +110,6 @@ namespace Service_TechCompass.Services
             };
         }
 
-        // 2. BỔ SUNG HÀM POST: CHỈ GỌI KHI CẦN LƯU BÁO CÁO
         public async Task<(int StatusCode, string Message)> SaveDailySkillGapReportAsync(Guid studentId)
         {
             try
@@ -126,7 +136,7 @@ namespace Service_TechCompass.Services
                         StudentId = studentId,
                         GeneratedAt = DateTime.Now,
                         Summary = aiSummary,
-                        PdfUrl = null // Sẽ được cập nhật khi họ bấm nút Export
+                        PdfUrl = null
                     };
                     _context.SkillGapReports.Add(newReport);
                     await _context.SaveChangesAsync();
@@ -228,7 +238,6 @@ namespace Service_TechCompass.Services
                 });
             }).GeneratePdf();
 
-            // ĐẨY VÀO QUEUE: Theo dõi hành vi xuất báo cáo của sinh viên
             await _telemetryService.LogLearningHistoryAsync(
                 studentId: wrapper.StudentId,
                 progressId: Guid.Empty,

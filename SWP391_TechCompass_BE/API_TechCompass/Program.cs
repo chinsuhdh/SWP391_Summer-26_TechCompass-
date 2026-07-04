@@ -11,7 +11,7 @@ using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
 using Microsoft.SemanticKernel;
-using Hangfire; // ĐÃ THÊM
+using Hangfire;
 
 namespace API_TechCompass
 {
@@ -20,6 +20,11 @@ namespace API_TechCompass
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            // =========================================================
+            // ĐĂNG KÝ BỘ NHỚ CACHE (GIẢI QUYẾT LỖI CRASH KHI INJECT VÀO SERVICE)
+            // =========================================================
+            builder.Services.AddMemoryCache();
 
             // 1. DATABASE CONTEXT
             builder.Services.AddDbContext<Swp391CareerRoadmapContext>(options =>
@@ -222,6 +227,7 @@ namespace API_TechCompass
             app.MapHub<Service_TechCompass.Hubs.RoadmapNotificationHub>("/hubs/roadmap");
             app.MapHub<Service_TechCompass.Hubs.VirtualMentorChatHub>("/hubs/virtualMentor");
             app.MapHub<Service_TechCompass.Hubs.PortfolioHub>("/portfolioHub");
+
             app.Run();
         }
     }

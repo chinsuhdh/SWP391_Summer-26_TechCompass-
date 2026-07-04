@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Memory; // ĐÃ THÊM: Thư viện Cache
 using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
@@ -24,7 +25,8 @@ namespace Service_TechCompass.Services
         private readonly IConfiguration _config;
         private readonly Swp391CareerRoadmapContext _context;
         private readonly ITelemetryService _telemetryService;
-        private readonly IChatCompletionService _geminiService; // ĐÃ THÊM: Inject Semantic Kernel
+        private readonly IChatCompletionService _geminiService;
+        private readonly IMemoryCache _cache; // ĐÃ THÊM: Biến Cache
 
         public MarketPulseService(
             IMarketPulseRepository repo,
@@ -32,13 +34,15 @@ namespace Service_TechCompass.Services
             IConfiguration config,
             Swp391CareerRoadmapContext context,
             ITelemetryService telemetryService,
-            Kernel kernel) // ĐÃ THÊM: Kernel
+            Kernel kernel,
+            IMemoryCache cache) // ĐÃ THÊM: Inject IMemoryCache
         {
             _repo = repo;
             _httpClient = httpClient;
             _config = config;
             _context = context;
             _telemetryService = telemetryService;
+            _cache = cache; // ĐÃ THÊM: Gán biến Cache
 
             // Lấy service Gemini từ cấu hình tập trung trong Program.cs
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
@@ -89,14 +93,24 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            // Ghi log User vừa lọc Job 
-            await _telemetryService.LogLearningHistoryAsync(
-                studentId: studentId,
-                progressId: Guid.Empty,
-                actionType: "FILTER_JOB_MARKET",
-                durationSeconds: 0,
-                details: $"Sinh viên vừa tìm kiếm job với từ khóa '{filter.Keyword}'"
-            );
+            // ==========================================
+            // GHI LOG CÓ KIỂM SOÁT COOLDOWN (Chống Spam)
+            // ==========================================
+            string cacheKey = $"FilterJobLog_{studentId}_{filter.Keyword?.ToLower()}";
+
+            if (!_cache.TryGetValue(cacheKey, out _))
+            {
+                await _telemetryService.LogLearningHistoryAsync(
+                    studentId: studentId,
+                    progressId: Guid.Empty,
+                    actionType: "FILTER_JOB_MARKET",
+                    durationSeconds: 0,
+                    details: $"Sinh viên vừa tìm kiếm job với từ khóa '{filter.Keyword}'"
+                );
+
+                // Khóa 10 phút để tránh log rác khi user lật trang hoặc liên tục click
+                _cache.Set(cacheKey, true, TimeSpan.FromMinutes(10));
+            }
 
             return filter.SortBy == "match"
                 ? result.OrderByDescending(x => x.MatchPercentage).ToList()

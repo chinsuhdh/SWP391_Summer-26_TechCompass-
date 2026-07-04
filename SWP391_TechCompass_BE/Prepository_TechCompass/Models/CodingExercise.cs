@@ -14,6 +14,9 @@ namespace Repository_TechCompass.Models
         public string? ExpectedOutput { get; set; }
         public string? DifficultyLevel { get; set; }
 
+        // DÒNG MỚI THÊM VÀO:
+        public string? Language { get; set; }
+
         public virtual SkillNode SkillNode { get; set; } = null!;
     }
 }

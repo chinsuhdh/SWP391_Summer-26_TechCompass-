@@ -239,5 +239,71 @@ namespace Service_TechCompass.Services
 
             return (200, aiAdvice, responseData);
         }
+
+        // =========================================================
+        // HÀM MỚI: ĐỒNG BỘ TIẾN ĐỘ TỪ BÀI TEST ĐẦU VÀO (PLACEMENT TEST)
+        // =========================================================
+        public async Task SyncPlacementTestProgressAsync(Guid userId, List<AssessmentQuizDetail> quizDetails)
+        {
+            if (quizDetails == null || !quizDetails.Any()) return;
+
+            // 1. Lấy thông tin các câu hỏi để biết nó thuộc Skill Node nào
+            var questionIds = quizDetails.Select(q => q.QuestionId).ToList();
+            var questions = await _context.AssessmentQuestions
+                                          .Where(q => questionIds.Contains(q.QuestionId))
+                                          .ToListAsync();
+
+            // 2. Gom nhóm kết quả theo từng Skill Node bằng LINQ Join
+            // Ví dụ: Node C# (Đúng 2/3 câu), Node SQL (Đúng 3/3 câu), Node OOP (Đúng 0/3 câu)
+            var nodeResults = quizDetails
+                .Join(questions,
+                      detail => detail.QuestionId,
+                      question => question.QuestionId,
+                      (detail, question) => new { question.SkillNodeId, detail.IsCorrect })
+                .GroupBy(x => x.SkillNodeId)
+                .Select(g => new
+                {
+                    SkillNodeId = g.Key,
+                    TotalQuestions = g.Count(),
+                    CorrectAnswers = g.Count(x => x.IsCorrect),
+                    PassPercentage = (decimal)g.Count(x => x.IsCorrect) / g.Count()
+                }).ToList();
+
+            // 3. Duyệt qua từng Node, nếu Pass Rate >= 60% thì mở khóa và "tốt nghiệp" Node đó luôn!
+            foreach (var result in nodeResults)
+            {
+                if (result.PassPercentage >= 0.60m) // Ngưỡng 60% (có thể tùy chỉnh)
+                {
+                    var progress = await _context.RoadmapProgresses
+                        .FirstOrDefaultAsync(p => p.StudentId == userId && p.SkillNodeId == result.SkillNodeId);
+
+                    // Nếu chưa có record trong bảng RoadmapProgress thì tạo mới với trạng thái Completed
+                    if (progress == null)
+                    {
+                        _context.RoadmapProgresses.Add(new RoadmapProgress
+                        {
+                            ProgressId = Guid.NewGuid(),
+                            StudentId = userId,
+                            SkillNodeId = result.SkillNodeId,
+                            Status = "Completed",
+                            CompletionPercent = 100,
+                            CompletedAt = DateTime.Now,
+                            UpdatedAt = DateTime.Now
+                        });
+                    }
+                    // Nếu đã có (đang học dở) thì update lên Completed
+                    else
+                    {
+                        progress.Status = "Completed";
+                        progress.CompletionPercent = 100;
+                        progress.CompletedAt = DateTime.Now;
+                        progress.UpdatedAt = DateTime.Now;
+                    }
+                }
+            }
+
+            // Lưu toàn bộ thay đổi xuống Database 1 lần duy nhất để tối ưu hiệu năng
+            await _context.SaveChangesAsync();
+        }
     }
 }

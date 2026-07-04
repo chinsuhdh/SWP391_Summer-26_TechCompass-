@@ -174,43 +174,64 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
             if (node == null) throw new Exception("Không tìm thấy kỹ năng này trong Database.");
 
-            string targetLanguage = "C#";
-            string defaultTemplate = "using System;\\n\\npublic class Solution {\\n    public static void Main() {\\n        // Viết code của bạn tại đây\\n    }\\n}";
-
+            string targetLanguage = string.Empty;
+            string defaultTemplate = string.Empty;
             string lowerNodeName = node.NodeName.ToLower();
 
-            if (lowerNodeName.Contains("html") || lowerNodeName.Contains("css") || lowerNodeName.Contains("javascript") || lowerNodeName.Contains("dom"))
+            // TỐI ƯU THUẬT TOÁN ĐOÁN NGÔN NGỮ TỪ TÊN KỸ NĂNG
+            if (lowerNodeName.Contains("sql") || lowerNodeName.Contains("database"))
+            {
+                targetLanguage = "SQL";
+                defaultTemplate = "-- Viết câu lệnh SQL của bạn tại đây\nSELECT * FROM ...";
+            }
+            else if (lowerNodeName.Contains("linux") || lowerNodeName.Contains("shell") || lowerNodeName.Contains("bash"))
+            {
+                targetLanguage = "Bash";
+                defaultTemplate = "#!/bin/bash\n# Viết script bash tại đây";
+            }
+            else if (lowerNodeName.Contains("html") || lowerNodeName.Contains("css") || lowerNodeName.Contains("javascript") || lowerNodeName.Contains("dom") || lowerNodeName.Contains("react") || lowerNodeName.Contains("hooks") || lowerNodeName.Contains("node"))
             {
                 targetLanguage = "JavaScript (Node.js)";
-                defaultTemplate = "// Viết mã JavaScript của bạn dưới đây để giải quyết bài toán\\n// Hàm console.log() sẽ in kết quả ra màn hình\\n\\nfunction solve() {\\n\\n}\\n\\nsolve();";
-            }
-            else if (lowerNodeName.Contains("react") || lowerNodeName.Contains("hooks"))
-            {
-                targetLanguage = "JavaScript (React Component Logic)";
-                defaultTemplate = "// Viết mã logic JavaScript/React của bạn dưới đây\\n\\nconst App = () => {\\n    // ...\\n};";
+                defaultTemplate = "// Viết mã JavaScript của bạn dưới đây\n// Hàm console.log() sẽ in kết quả ra màn hình\n\nfunction solve() {\n\n}\n\nsolve();";
             }
             else if (lowerNodeName.Contains("python") || lowerNodeName.Contains("data"))
             {
                 targetLanguage = "Python";
-                defaultTemplate = "def solve():\\n    # Viết mã Python của bạn tại đây\\n    pass\\n\\nif __name__ == '__main__':\\n    solve()";
+                defaultTemplate = "def solve():\n    # Viết mã Python của bạn tại đây\n    pass\n\nif __name__ == '__main__':\n    solve()";
             }
             else if (lowerNodeName.Contains("java") && !lowerNodeName.Contains("javascript"))
             {
                 targetLanguage = "Java";
-                defaultTemplate = "import java.util.*;\\n\\npublic class Solution {\\n    public static void main(String[] args) {\\n        // Viết mã Java của bạn tại đây\\n    }\\n}";
+                defaultTemplate = "import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        // Viết mã Java của bạn tại đây\n    }\n}";
+            }
+            else if (lowerNodeName.Contains("c++") || lowerNodeName.Contains("cpp"))
+            {
+                targetLanguage = "C++";
+                defaultTemplate = "#include <iostream>\nusing namespace std;\n\nint main() {\n    // Viết code C++ của bạn tại đây\n    return 0;\n}";
+            }
+            else if (lowerNodeName.Contains("c#") || lowerNodeName.Contains("csharp") || lowerNodeName.Contains("net") || lowerNodeName.Contains("oop") || lowerNodeName.Contains("linq"))
+            {
+                targetLanguage = "C#";
+                defaultTemplate = "using System;\n\npublic class Solution {\n    public static void Main() {\n        // Viết code của bạn tại đây\n    }\n}";
+            }
+
+            // NẾU TÊN NODE KHÔNG THUỘC NGÔN NGỮ NÀO -> BÁO LỖI (CHẶN GỌI AI)
+            if (string.IsNullOrEmpty(targetLanguage))
+            {
+                throw new Exception($"Kỹ năng '{node.NodeName}' không hỗ trợ bài kiểm tra lập trình tự động bằng Code Editor.");
             }
 
             var chatHistory = new ChatHistory();
             chatHistory.AddSystemMessage("You are a strict automated JSON generator. Do not include markdown codeblocks like ```json.");
 
             string prompt = $@"Bạn là một chuyên gia tạo đề thi lập trình (Problem Setter) trên HackerRank.
-Hãy tạo 1 bài tập lập trình cơ bản bằng ngôn ngữ '{targetLanguage}' để kiểm tra kỹ năng '{node.NodeName}'.
+Hãy tạo 1 bài tập thực hành cơ bản bằng ngôn ngữ '{targetLanguage}' để kiểm tra kỹ năng '{node.NodeName}'.
 YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT chuỗi JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
 Cấu trúc JSON bắt buộc phải giống hệt như sau:
 {{
     ""Title"": ""Tên bài tập ngắn gọn"",
     ""ProblemDescription"": ""Mô tả yêu cầu bài toán chi tiết, rõ ràng."",
-    ""DefaultCodeTemplate"": ""{defaultTemplate}"",
+    ""DefaultCodeTemplate"": ""{defaultTemplate.Replace("\"", "\\\"").Replace("\n", "\\n")}"",
     ""TestStdin"": ""Dữ liệu đầu vào giả lập nhập từ Console. Nếu bài không yêu cầu nhập, hãy để rỗng."",
     ""ExpectedOutput"": ""Kết quả in ra màn hình Console mong đợi để máy chấm tự động so sánh."",
     ""DifficultyLevel"": ""Easy""
@@ -251,7 +272,15 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                     DefaultCodeTemplate = exerciseData.DefaultCodeTemplate,
                     TestStdin = exerciseData.TestStdin,
                     ExpectedOutput = exerciseData.ExpectedOutput,
-                    DifficultyLevel = exerciseData.DifficultyLevel
+                    DifficultyLevel = exerciseData.DifficultyLevel,
+
+                    // MAP CHUẨN NGÔN NGỮ ĐỂ FE & COMPILER SỬ DỤNG
+                    Language = targetLanguage.Contains("JavaScript") ? "javascript" :
+                               targetLanguage.Contains("Python") ? "python" :
+                               targetLanguage.Contains("Java") ? "java" :
+                               targetLanguage.Contains("SQL") ? "sql" :
+                               targetLanguage.Contains("Bash") ? "bash" :
+                               targetLanguage.Contains("C++") ? "cpp" : "csharp"
                 };
 
                 var savedExercise = await _repository.SaveCodingExerciseAsync(newExercise);
@@ -312,6 +341,7 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                 string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
                 string apiUrl = "https://api.jdoodle.com/v1/execute";
 
+                // MỞ RỘNG BỘ NGÔN NGỮ BẮT THEO TÊN CHUẨN CỦA FE & DB CHUYỂN XUỐNG
                 string jLanguage = submission.CodeSubmission.Language.ToLower() switch
                 {
                     "csharp" => "csharp",
@@ -320,8 +350,11 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                     "java" => "java",
                     "c" => "c",
                     "cpp" => "cpp14",
-                    _ => "csharp"
+                    "sql" => "sql",      // Thêm hỗ trợ SQL
+                    "bash" => "bash",    // Thêm hỗ trợ Shell Script/Linux
+                    _ => throw new Exception($"Ngôn ngữ {submission.CodeSubmission.Language} chưa được hệ thống hỗ trợ chấm tự động.")
                 };
+
                 string jVersion = jLanguage == "csharp" ? "4" : "0";
 
                 var jdoodleReq = new
@@ -390,25 +423,17 @@ Chỉ trả về nội dung nhận xét.";
 
                 chatHistory.AddUserMessage(prompt);
 
+                // ĐÃ SỬA: Chuyển thẳng sang dùng Gemini làm Reviewer chính thức
                 try
                 {
-                    var response = await _openAiAnalyzer.GetChatMessageContentAsync(chatHistory);
+                    var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
                     aiFeedback = response.ToString();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"\n[LỖI OPENAI CODE REVIEW]: {ex.Message}");
-                    try
-                    {
-                        Console.WriteLine("=> Đang chuyển hướng (Fallback) sang dùng Gemini để chấm bài...");
-                        var fallbackResponse = await _geminiService.GetChatMessageContentAsync(chatHistory);
-                        aiFeedback = fallbackResponse.ToString();
-                    }
-                    catch (Exception geminiEx)
-                    {
-                        Console.WriteLine($"[LỖI GEMINI CODE REVIEW]: {geminiEx.Message}\n");
-                        aiFeedback = $"Hệ thống AI đang bảo trì. Chi tiết lỗi OpenAI: {ex.Message}";
-                    }
+                    Console.WriteLine($"\n[LỖI GEMINI CODE REVIEW]: {ex.Message}");
+                    // Fallback khi cả Gemini cũng sập (rất hiếm khi xảy ra)
+                    aiFeedback = "Hệ thống AI đang bảo trì. Không thể đưa ra nhận xét code vào lúc này.";
                 }
 
                 session.CodeDetail = new AssessmentCodeDetail
@@ -504,45 +529,56 @@ Chỉ trả về nội dung nhận xét.";
         // ==========================================
         // LUỒNG ĐÁNH GIÁ TOÀN DIỆN THEO NGHỀ NGHIỆP (ROLE-BASED)
         // ==========================================
+        // ==========================================
+        // FIX: THUẬT TOÁN BỐC ĐỀ ĐÁNH GIÁ ĐẦU VÀO (PLACEMENT TEST)
+        // ==========================================
         public async Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId)
         {
-            var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
-            if (nodes == null || !nodes.Any())
-                throw new Exception("Chưa có kỹ năng nào được cấu hình cho ngành nghề này trong Database.");
+            // Lấy tất cả node của nghề này
+            var allNodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
+            if (allNodes == null || !allNodes.Any())
+                throw new Exception("Chưa có kỹ năng nào được cấu hình cho ngành nghề này.");
+
+            // CHIẾN LƯỢC: Chỉ test 5-7 Node cốt lõi (PriorityLevel nhỏ nhất - Tức là nền tảng)
+            // Đừng test mấy cái râu ria ở cuối lộ trình vì nếu cơ bản hổng thì nâng cao chắc chắn hổng.
+            var coreNodes = allNodes.OrderBy(n => n.PriorityLevel).Take(6).ToList();
 
             var finalQuestions = new List<AssessmentQuestion>();
-            int questionsPerNode = (int)Math.Ceiling(10.0 / nodes.Count);
+            int questionsPerNode = 3; // Lấy 3 câu mỗi Node Cốt lõi (Tổng ~ 15-18 câu)
 
-            foreach (var node in nodes)
+            foreach (var node in coreNodes)
             {
-                var dbQuestions = await _repository.GetQuestionsBySkillNodeAsync(node.SkillNodeId, 10);
+                // 1. Tìm câu hỏi trong DB trước
+                var dbQuestions = await _repository.GetQuestionsBySkillNodeAsync(node.SkillNodeId, questionsPerNode);
 
+                // 2. Nếu DB thiếu, gọi thẳng Gemini AI để sinh (Không dùng QuizApi nữa)
                 if (dbQuestions == null || dbQuestions.Count < questionsPerNode)
                 {
+                    // Yêu cầu AI đẻ thêm 5 câu cho dư dả
                     dbQuestions = await GenerateAndSaveQuestionsForNodeAsync(node.SkillNodeId, node.NodeName, 5);
                 }
 
+                // 3. Add vào đề thi tổng
                 if (dbQuestions != null && dbQuestions.Any())
                 {
                     finalQuestions.AddRange(dbQuestions.OrderBy(x => Guid.NewGuid()).Take(questionsPerNode));
                 }
-
-                if (finalQuestions.Count >= 10) break;
             }
 
-            finalQuestions = finalQuestions.OrderBy(x => Guid.NewGuid()).Take(10).ToList();
+            // Trộn ngẫu nhiên toàn bộ đề thi trước khi gửi xuống Client
+            finalQuestions = finalQuestions.OrderBy(x => Guid.NewGuid()).ToList();
 
             return finalQuestions.Select(q => new QuizQuestionDto
             {
                 QuestionId = q.QuestionId,
                 QuestionText = q.QuestionText,
                 Options = new Dictionary<string, string>
-                {
-                    { "A", q.OptionA ?? "True" },
-                    { "B", q.OptionB ?? "False" },
-                    { "C", q.OptionC ?? "" },
-                    { "D", q.OptionD ?? "" }
-                }.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
+        {
+            { "A", q.OptionA ?? "True" },
+            { "B", q.OptionB ?? "False" },
+            { "C", q.OptionC ?? "" },
+            { "D", q.OptionD ?? "" }
+        }.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
             }).ToList();
         }
 
@@ -565,11 +601,16 @@ Chỉ trả về nội dung nhận xét.";
 
                 string prompt = $@"Bạn là một chuyên gia đào tạo IT cao cấp.
 Hãy tạo {count} câu hỏi trắc nghiệm (Multiple Choice) bằng tiếng Việt để kiểm tra tư duy logic về kỹ năng '{nodeName}'.
-YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT mảng JSON hợp lệ, KHÔNG thêm bất kỳ lời chào hay giải thích nào.
-Cấu trúc JSON bắt buộc:
+
+LƯU Ý QUAN TRỌNG VỀ ĐỊNH DẠNG CODE TRONG JSON:
+Nếu câu hỏi yêu cầu đọc hiểu đoạn mã (code), bạn BẮT BUỘC phải gộp toàn bộ đoạn mã đó vào bên trong giá trị của trường ""QuestionText"". 
+Tuyệt đối KHÔNG sử dụng phím Enter/xuống dòng thật bên trong chuỗi JSON. Phải sử dụng ký tự `\n` để ngắt dòng cho code. Dùng dấu nháy đơn `'` bên trong code thay vì nháy kép `""` để tránh lỗi JSON.
+
+YÊU CẦU BẮT BUỘC: CHỈ trả về ĐÚNG MỘT mảng JSON hợp lệ, KHÔNG thêm lời chào.
+Cấu trúc JSON bắt buộc phải giống hệt ví dụ sau:
 [
     {{
-        ""QuestionText"": ""Nội dung câu hỏi sâu sắc về {nodeName}?"",
+        ""QuestionText"": ""Đâu là đầu ra của đoạn mã {nodeName} sau?\n```\nx = 10\nprint(x)\n```"",
         ""OptionA"": ""Nội dung A"",
         ""OptionB"": ""Nội dung B"",
         ""OptionC"": ""Nội dung C"",
