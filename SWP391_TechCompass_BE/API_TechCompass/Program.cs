@@ -92,6 +92,8 @@ namespace API_TechCompass
             builder.Services.AddScoped<IVirtualMentorService, VirtualMentorService>();
             builder.Services.AddScoped<ICounselorService, CounselorService>();
 
+            builder.Services.AddScoped<IDashboardService, DashboardService>();
+
             // 5. ĐĂNG KÝ HTTP CLIENT SERVICES
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddHttpClient<ICareerService, CareerService>();
