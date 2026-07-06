@@ -24,5 +24,6 @@ namespace Service_TechCompass.Interfaces
 
         // HÀM MỚI: Phân tích độ khớp nghề nghiệp (Role Suitability)
         Task EvaluateRoleSuitabilityAsync(Guid studentId, Guid portfolioId);
+
     }
 }

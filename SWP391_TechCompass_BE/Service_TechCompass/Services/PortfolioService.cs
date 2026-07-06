@@ -449,6 +449,14 @@ Yêu cầu: Không dùng Markdown. Văn phong chuyên nghiệp, truyền cảm h
                 dto.CareerJourney.Add(new TimelineEventDto { Year = "Hiện tại", EventTitle = "Mục tiêu chuyên sâu", Description = $"AI xác định phù hợp nhất với vị trí {dto.CareerRecommendation.RecommendedRole}." });
             }
 
+            // Viết ngay trước dòng: return dto;
+            int baseScore = 50; // Điểm sàn
+            int skillScore = (dto.SkillGapAnalysis?.MatchPercentage ?? 0) * 30 / 100; // Chiếm 30% trọng số
+            int repoScore = Math.Min((dto.GithubStats?.TotalRepositories ?? 0) * 2, 10); // Tối đa 10 điểm
+            int difficultyScore = repoList.Any() ? (int)Math.Round(repoList.Average(r => r.DifficultyStars)) * 2 : 0; // Tối đa 10 điểm
+
+            dto.AiCareerScore = Math.Min(baseScore + skillScore + repoScore + difficultyScore, 99);
+
             return dto;
         }
 
@@ -519,5 +527,7 @@ Yêu cầu: Không dùng Markdown. Văn phong chuyên nghiệp, truyền cảm h
             }
         }
         #endregion
+
+
     }
 }

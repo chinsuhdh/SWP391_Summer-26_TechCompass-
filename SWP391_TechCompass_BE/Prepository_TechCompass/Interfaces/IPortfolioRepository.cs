@@ -14,4 +14,6 @@ public interface IPortfolioRepository
 
     // THÊM DÒNG NÀY VÀO:
     Task<bool> SyncGithubReposAsync(Guid portfolioId, string githubUsername);
+
+
 }

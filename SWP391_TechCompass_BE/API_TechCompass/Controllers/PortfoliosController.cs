@@ -130,5 +130,7 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { Error = "Lỗi hệ thống khi lưu phản hồi", Detail = ex.Message });
             }
         }
+
+
     }
 }

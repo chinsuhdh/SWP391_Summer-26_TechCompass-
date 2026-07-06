@@ -11,6 +11,7 @@ namespace Service_TechCompass.DTOs
         public string? AiProfileSummary { get; set; }
         public string? ShareableUrl { get; set; }
         public DateTime? CreatedAt { get; set; }
+        public int AiCareerScore { get; set; }
 
         // 1. Phân tích độ tương thích nghề nghiệp (Career Suitability & Recommendation)
         public List<CareerSuitabilityDto> CareerSuitabilities { get; set; } = new();
