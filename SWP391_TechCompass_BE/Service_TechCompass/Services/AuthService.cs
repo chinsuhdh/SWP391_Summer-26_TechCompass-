@@ -30,40 +30,49 @@ namespace Service_TechCompass.Services
 
         public async Task<(int StatusCode, string Message)> RegisterAsync(RegisterDto request)
         {
+            // 1. Kiểm tra xem Email đã tồn tại chưa
             if (_userRepo.EmailExists(request.Email))
             {
                 return (400, "Email đã tồn tại trong hệ thống.");
             }
 
+            // 2. Tạo mã OTP kích hoạt tài khoản
             Random rand = new Random();
             string otp = rand.Next(100000, 999999).ToString();
 
+            // 3. Khởi tạo thực thể User (Bảng cha)
             var newUser = new User
             {
                 UserId = Guid.NewGuid(),
                 Email = request.Email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
                 Provider = "Email",
-                IsActive = false,
+                IsActive = false, // Sẽ kích hoạt sau khi xác thực OTP thành công
                 CreatedAt = DateTime.Now,
-                RoleId = 2,
+                RoleId = 2, // Mặc định tự đăng ký qua màn hình Register sẽ là Student (Role 2)
                 OtpCode = otp,
                 OtpExpiry = DateTime.Now.AddMinutes(10)
             };
 
             _userRepo.AddUser(newUser);
 
+            // 4. Khởi tạo hồ sơ Student mở rộng (Bảng con)
+            // Đã xóa bỏ phần khai báo dư và sinh thêm StudentCode ngẫu nhiên để chặn lỗi UNIQUE trùng NULL
             var newStudent = new Student
             {
                 StudentId = Guid.NewGuid(),
-                UserId = newUser.UserId,
+                UserId = newUser.UserId, // Liên kết khóa ngoại quan hệ 1-1 trỏ tới bảng User
                 FullName = request.FullName,
-                UpdatedAt = DateTime.Now
+                UpdatedAt = DateTime.Now,
+                StudentCode = "SE" + rand.Next(100000, 999999).ToString() // Sinh mã số sinh viên tự động tránh lỗi DB
             };
 
             _userRepo.AddStudent(newStudent);
+
+            // 5. Lưu đồng thời 2 bảng xuống Database
             _userRepo.SaveChanges();
 
+            // 6. Gửi Email chứa mã OTP về hòm thư người dùng
             string subject = "TechCompass - Mã xác thực tài khoản mới";
             string body = $"<h3>Chào {request.FullName},</h3><p>Cảm ơn bạn đã tham gia TechCompass. Để kích hoạt tài khoản, vui lòng nhập mã OTP dưới đây:</p><p><b style='color:green; font-size: 24px;'>{otp}</b></p><p>Mã này sẽ hết hạn trong 10 phút.</p>";
 
@@ -80,6 +89,7 @@ namespace Service_TechCompass.Services
             if (user.OtpCode != request.OtpCode) return (400, "Mã OTP không chính xác.");
             if (DateTime.Now > user.OtpExpiry) return (400, "Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại.");
 
+            // Kích hoạt tài khoản và xóa mã OTP cũ
             user.IsActive = true;
             user.OtpCode = null;
             user.OtpExpiry = null;
@@ -93,11 +103,13 @@ namespace Service_TechCompass.Services
         {
             var user = _userRepo.GetUserByEmail(request.Email);
 
+            // Kiểm tra thông tin tài khoản và băm verify mật khẩu qua BCrypt
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 return (401, "Sai email hoặc mật khẩu.", string.Empty);
             }
 
+            // Kiểm tra xem tài khoản đã được kích hoạt OTP hoặc có bị khóa hay không
             if (user.IsActive == false)
             {
                 if (user.OtpCode != null)
@@ -106,6 +118,7 @@ namespace Service_TechCompass.Services
                 return (403, "Tài khoản của bạn đã bị khóa.", string.Empty);
             }
 
+            // Tạo mã JWT Token trả về cho Client lưu LocalStorage
             var token = GenerateJwtToken(user);
             return (200, "Đăng nhập thành công!", token);
         }
@@ -137,6 +150,7 @@ namespace Service_TechCompass.Services
             if (user.OtpCode != request.OtpCode) return (400, "Mã OTP không chính xác.");
             if (DateTime.Now > user.OtpExpiry) return (400, "Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại.");
 
+            // Cập nhật mật khẩu mới và băm bảo mật lại bằng BCrypt
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
             user.OtpCode = null;
             user.OtpExpiry = null;
@@ -160,15 +174,16 @@ namespace Service_TechCompass.Services
 
                 var user = _userRepo.GetUserByEmail(payload.Email);
 
+                // Nếu tài khoản Google đăng nhập lần đầu -> Tiến hành tự động đăng ký
                 if (user == null)
                 {
                     user = new User
                     {
                         UserId = Guid.NewGuid(),
                         Email = payload.Email,
-                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Sinh pass ngẫu nhiên phòng hờ
                         Provider = "Google",
-                        IsActive = true,
+                        IsActive = true, // Google login mặc định tin cậy nên kích hoạt luôn
                         CreatedAt = DateTime.Now,
                         RoleId = 2,
                     };
@@ -180,7 +195,8 @@ namespace Service_TechCompass.Services
                         StudentId = Guid.NewGuid(),
                         UserId = user.UserId,
                         FullName = payload.Name,
-                        UpdatedAt = DateTime.Now
+                        UpdatedAt = DateTime.Now,
+                        StudentCode = "SE" + new Random().Next(100000, 999999).ToString() // Đồng bộ fix lỗi Unique cho đăng nhập Google
                     };
 
                     _userRepo.AddStudent(newStudent);
@@ -216,7 +232,7 @@ namespace Service_TechCompass.Services
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            // 1. Dịch RoleId sang tên chuẩn
+            // 1. Dịch chuyển ID sang Tên vai trò (Role Name) tương ứng để thiết lập Authorization
             var roleName = user.RoleId switch
             {
                 1 => "Admin",
@@ -227,23 +243,22 @@ namespace Service_TechCompass.Services
             };
 
             var claims = new List<Claim>
-    {
-        new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
-        new Claim(JwtRegisteredClaimNames.Email, user.Email),
-        new Claim("RoleId", user.RoleId.ToString()),
-        new Claim(ClaimTypes.Role, roleName), // Giữ nguyên để fix 403 authorization
-        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-    };
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
+                new Claim(JwtRegisteredClaimNames.Email, user.Email),
+                new Claim("RoleId", user.RoleId.ToString()),
+                new Claim(ClaimTypes.Role, roleName), // Gán claim role để fix lỗi 403 Authorization ở FE/BE
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
 
-            // 2. Dynamic Inject Claims dựa trên từng Role thực tế
+            // 2. Tự động kiểm tra vai trò và Inject ID thực thể của bảng con vào Claim phục vụ cho frontend gọi API profile
             switch (user.RoleId)
             {
-                case 1: // Admin
-                        // Nếu bạn có bảng Admin riêng thì gọi Repo lấy ra, nếu không thì lấy mặc định tên "System Admin"
+                case 1: // Admin đặc quyền
                     claims.Add(new Claim("FullName", "System Administrator"));
                     break;
 
-                case 2: // Student
+                case 2: // Sinh viên học tập
                     var student = _userRepo.GetStudentByUserId(user.UserId);
                     if (student != null)
                     {
@@ -252,8 +267,7 @@ namespace Service_TechCompass.Services
                     }
                     break;
 
-                case 3: // Mentor
-                        // Giả định bạn có hàm GetMentorByUserId trong _userRepo
+                case 3: // Mentor doanh nghiệp
                     var mentor = _userRepo.GetMentorByUserId(user.UserId);
                     if (mentor != null)
                     {
@@ -262,8 +276,7 @@ namespace Service_TechCompass.Services
                     }
                     break;
 
-                case 4: // Counselor
-                        // Giả định bạn có hàm GetCounselorByUserId trong _userRepo
+                case 4: // Cố vấn tư vấn học đường
                     var counselor = _userRepo.GetCounselorByUserId(user.UserId);
                     if (counselor != null)
                     {

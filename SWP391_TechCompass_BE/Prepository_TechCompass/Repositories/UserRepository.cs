@@ -59,5 +59,14 @@ namespace Repository_TechCompass.Repositories
         public void AddUser(User user) => _context.Users.Add(user);
         public void AddStudent(Student student) => _context.Students.Add(student);
         public void SaveChanges() => _context.SaveChanges();
+        public void AddMentor(Mentor mentor)
+        {
+            _context.Mentors.Add(mentor);
+        }
+
+        public void AddCounselor(Counselor counselor)
+        {
+            _context.Counselors.Add(counselor);
+        }
     }
 }

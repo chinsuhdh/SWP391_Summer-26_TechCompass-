@@ -22,6 +22,8 @@ namespace Repository_TechCompass.Interfaces
         Task<Student?> GetStudentByUserIdAsync(Guid userId);
         Task<Mentor?> GetMentorByUserIdAsync(Guid userId);
         Task<Counselor?> GetCounselorByUserIdAsync(Guid userId);
+        void AddMentor(Mentor mentor);
+        void AddCounselor(Counselor counselor);
 
         Student? GetStudentByUserId(Guid userId);
         Mentor? GetMentorByUserId(Guid userId);
