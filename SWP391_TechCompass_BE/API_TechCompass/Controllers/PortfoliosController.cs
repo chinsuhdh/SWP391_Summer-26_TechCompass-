@@ -55,11 +55,12 @@ namespace API_TechCompass.Controllers
             if (string.IsNullOrWhiteSpace(request.GithubUsername))
                 return BadRequest(new { message = "Username GitHub không được để trống." });
 
-            // ĐÃ SỬA: Gọi biến _backgroundJobClient thay vì gọi class tĩnh
-            _backgroundJobClient.Enqueue<IPortfolioService>(service => service.SyncGithubReposAsync(studentId, request.GithubUsername));
+            // REFACTOR: Gọi thẳng Master Pipeline thay vì chỉ Sync. 
+            // Hệ thống sẽ tự động Sync -> Analyze Repo -> Evaluate Suitability -> Build Summary
+            _backgroundJobClient.Enqueue<IPortfolioService>(service =>
+                service.ProcessFullGithubPipelineAsync(studentId, request.GithubUsername));
 
-            // Trả về cho Frontend ngay lập tức
-            return Ok(new { message = "Hệ thống đang tiến hành tải và phân tích dự án GitHub của bạn dưới nền. Quá trình này có thể mất vài phút. Vui lòng quay lại kiểm tra sau!" });
+            return Ok(new { message = "Hệ thống đang tiến hành đồng bộ và AI đang phân tích toàn diện hồ sơ năng lực của bạn. Quá trình này có thể mất 1-2 phút!" });
         }
 
         // Task 49, 50: Phân tích dự án bằng AI

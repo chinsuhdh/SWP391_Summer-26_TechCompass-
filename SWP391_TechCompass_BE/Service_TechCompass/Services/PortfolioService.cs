@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.SemanticKernel;
@@ -39,6 +40,7 @@ namespace Service_TechCompass.Services
             _hubContext = hubContext;
         }
 
+        #region PUBLIC INTERFACE METHODS (CRUD & CORE)
         public async Task<PortfolioDto?> GetPortfolioAsync(Guid studentId)
         {
             var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
@@ -53,7 +55,6 @@ namespace Service_TechCompass.Services
             return MapToDto(portfolio);
         }
 
-        // FIX DỨT ĐIỂM: Đã xóa bỏ đoạn rác dư thừa lơ lửng do đóng ngoặc sai khi merge conflict
         public async Task<string> GenerateShareableUrlAsync(Guid studentId)
         {
             var p = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId)
@@ -64,440 +65,459 @@ namespace Service_TechCompass.Services
             return p.ShareableUrl;
         }
 
-        // FIX DỨT ĐIỂM: Cập nhật kiểu trả về Task<List<object>> theo đúng Interface mới của bạn Hoa
         public async Task<List<object>> GetAllPublicPortfoliosAsync()
         {
-            // TODO: Mentor Phân hệ quản lý - Bạn Hoa sẽ code logic nghiệp vụ ở đây sau
+            // TODO: Phân hệ cho Mentor
             return await Task.FromResult(new List<object>());
         }
 
-        // FIX DỨT ĐIỂM: Cập nhật kiểu trả về Task<PortfolioFeedbackResponseDto> theo đúng Interface mới của bạn Hoa
         public async Task<PortfolioFeedbackResponseDto> AddPortfolioFeedbackAsync(Guid portfolioId, Guid mentorUserId, CreatePortfolioFeedbackDto dto)
         {
-            // TODO: Mentor Phân hệ nhận xét bảng điểm - Bạn Hoa sẽ code logic nghiệp vụ ở đây sau
+            // TODO: Phân hệ cho Mentor
             return await Task.FromResult(new PortfolioFeedbackResponseDto());
         }
+        #endregion
 
-        public async Task<(int StatusCode, string Message)> SyncGithubReposAsync(Guid studentId, string githubUsername)
-        {
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            Console.WriteLine($"\n[BACKEND-SYNC] Bắt đầu đồng bộ GitHub cho username: '{githubUsername}' (StudentId: {studentId})"); // LOG BẮT ĐẦU
-
-            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            if (portfolio == null)
-            {
-                portfolio = await _portfolioRepo.CreatePortfolioAsync(new EPortfolio { PortfolioId = Guid.NewGuid(), StudentId = studentId, CreatedAt = DateTime.Now });
-            }
-
-            try
-            {
-                var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
-                var githubToken = _config["GithubConfig:PersonalAccessToken"];
-
-                if (string.IsNullOrEmpty(githubToken))
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("[BACKEND-WARNING] Không tìm thấy GitHub PersonalAccessToken trong config. Hệ thống đang gọi API ẩn danh (Rất dễ bị Rate Limit 60 req/hour).");
-                    Console.ResetColor();
-                }
-                else
-                {
-                    github.Credentials = new Credentials(githubToken);
-                }
-
-                Console.WriteLine("[BACKEND-SYNC] Đang gọi API GitHub kéo danh sách Repositories...");
-                var repos = await github.Repository.GetAllForUser(githubUsername);
-                Console.WriteLine($"[BACKEND-SYNC] Kéo thành công {repos.Count} repos từ GitHub. Bắt đầu lọc và lưu Database...");
-
-                int syncCount = 0;
-                var existingRepos = portfolio.GithubRepositories ?? new List<GithubRepository>();
-
-                foreach (var repo in repos)
-                {
-                    if (repo.Fork || repo.Size == 0 || repo.Archived) continue;
-                    string readmeContent = string.Empty;
-                    try
-                    {
-                        var readme = await github.Repository.Content.GetReadme(repo.Id);
-                        readmeContent = readme.Content;
-                    }
-                    catch (NotFoundException)
-                    {
-                        // Không có readme thì bỏ qua repo này
-                        continue;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(readmeContent) || readmeContent.Length < 50) continue;
-
-                    var dbRepo = existingRepos.FirstOrDefault(r => r.GithubUrl == repo.HtmlUrl);
-
-                    if (dbRepo != null)
-                    {
-                        dbRepo.ReadmeContent = readmeContent;
-                        dbRepo.SyncedAt = DateTime.Now;
-                        dbRepo.AiProjectSummary = null;
-                        dbRepo.ExtractedTechStack = null;
-
-                        await _portfolioRepo.UpdateGithubRepoAsync(dbRepo);
-                        syncCount++;
-                    }
-                    else
-                    {
-                        var newGithubRepo = new GithubRepository
-                        {
-                            RepoId = Guid.NewGuid(),
-                            PortfolioId = portfolio.PortfolioId,
-                            RepoName = repo.Name,
-                            GithubUrl = repo.HtmlUrl,
-                            ReadmeContent = readmeContent,
-                            SyncedAt = DateTime.Now
-                        };
-                        await _portfolioRepo.SaveGithubRepoAsync(newGithubRepo);
-                        syncCount++;
-                    }
-                }
-
-                watch.Stop();
-                Console.WriteLine($"[BACKEND-SYNC SUCCESS] Xử lý xong {syncCount} repos hợp lệ. Thời gian: {watch.Elapsed.TotalSeconds}s");
-
-                await _telemetryService.LogLearningHistoryAsync(
-                    studentId: studentId,
-                    progressId: null,
-                    actionType: "SYNC_GITHUB_SUCCESS",
-                    durationSeconds: (int)watch.Elapsed.TotalSeconds,
-                    details: $"Đồng bộ thành công {syncCount} repos từ tài khoản GitHub: {githubUsername}"
-                );
-
-                await _hubContext.Clients.All.SendAsync("SyncCompleted", studentId.ToString());
-                return (200, $"Đồng bộ thành công {syncCount} dự án chất lượng từ GitHub.");
-            }
-            catch (NotFoundException ex)
-            {
-                // Bắt lỗi nhập sai username GitHub
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[BACKEND-SYNC LỖI] Không tìm thấy tài khoản GitHub '{githubUsername}'. Chi tiết: {ex.Message}");
-                Console.ResetColor();
-                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, "Username không tồn tại.");
-                return (404, $"Không tìm thấy tài khoản GitHub: {githubUsername}");
-            }
-            catch (RateLimitExceededException ex)
-            {
-                // Bắt lỗi gọi quá nhiều lần bị GitHub chặn (thường xuyên xảy ra nếu thiếu Token)
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[BACKEND-SYNC LỖI] Bị GitHub API chặn do quá giới hạn Rate Limit. Chi tiết: {ex.Message}");
-                Console.ResetColor();
-                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, "Lỗi Rate Limit GitHub.");
-                return (429, "Hệ thống đang bị giới hạn lượt tải từ GitHub. Vui lòng thử lại sau.");
-            }
-            catch (Exception ex)
-            {
-                // Bắt các lỗi Database, Network,...
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[BACKEND-SYNC CRITICAL LỖI] Lỗi hệ thống: {ex.Message}");
-                Console.WriteLine($"[STACK TRACE] {ex.StackTrace}"); // In ra dòng code gây lỗi
-                Console.ResetColor();
-
-                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_FAILED", 0, ex.Message);
-                return (500, $"Lỗi khi kết nối GitHub: {ex.Message}");
-            }
-        }
-
-        public async Task<(int StatusCode, string Message)> AnalyzeRepoWithAiAsync(Guid repoId)
-        {
-            var repo = await _portfolioRepo.GetGithubRepoByIdAsync(repoId);
-            if (repo == null) return (404, "Không tìm thấy repository.");
-            if (string.IsNullOrWhiteSpace(repo.ReadmeContent)) return (400, "Repository này không có file README.md hoặc nội dung quá ngắn.");
-
-            string prompt = $@"Bạn là một chuyên gia tuyển dụng IT. Dưới đây là nội dung file README.md của một dự án:
-{repo.ReadmeContent}
-Hãy phân tích và trả về đúng định dạng sau. 
-QUAN TRỌNG: KHÔNG sử dụng Markdown, KHÔNG in đậm, in nghiêng, KHÔNG thêm dấu sao (**), KHÔNG giải thích thêm:
-SUMMARY: [Viết tóm tắt ngắn gọn mục đích dự án trong 2-3 câu]
-TECHSTACK: [Liệt kê các công nghệ, framework, ngôn ngữ được sử dụng, phân cách bằng dấu phẩy]";
-
-            var geminiApiKeys = _config.GetSection("GeminiApiConfig:ApiKeys").Get<string[]>() ?? Array.Empty<string>();
-            var geminiModelId = _config["GeminiApiConfig:ModelId"] ?? "gemini-2.5-flash";
-
-            var shuffledKeys = geminiApiKeys.OrderBy(_ => Guid.NewGuid()).ToList();
-
-            Exception? lastException = null;
-            string aiText = string.Empty;
-
-            foreach (var currentKey in shuffledKeys)
-            {
-                try
-                {
-                    IChatCompletionService chatService;
-
-                    if (shuffledKeys.Count == 0)
-                    {
-                        chatService = _kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
-                    }
-                    else
-                    {
-                        var temporaryKernel = Kernel.CreateBuilder()
-                            .AddGoogleAIGeminiChatCompletion(modelId: geminiModelId, apiKey: currentKey)
-                            .Build();
-                        chatService = temporaryKernel.GetRequiredService<IChatCompletionService>();
-                    }
-
-                    var result = await chatService.GetChatMessageContentAsync(prompt);
-                    aiText = result.Content ?? "";
-
-                    if (!string.IsNullOrWhiteSpace(aiText))
-                    {
-                        lastException = null;
-                        break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    lastException = ex;
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"[GEMINI KEY WARNING]: Một Key bị lỗi ({ex.Message}). Hệ thống đang tự động đổi sang Key dự phòng kế tiếp...");
-                    Console.ResetColor();
-                }
-            }
-
-            if (lastException != null || string.IsNullOrWhiteSpace(aiText))
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[AI KERNEL GEMINI CRITICAL ERROR]: Tất cả các API Key đều thất bại. Lỗi cuối cùng: {lastException?.Message}");
-                Console.ResetColor();
-                return (503, $"Dịch vụ Gemini hiện tại không khả dụng (503) hoặc toàn bộ API Key bị từ chối. Chi tiết: {lastException?.Message}");
-            }
-
-            try
-            {
-                Console.WriteLine("\n[AI RESPONSE DUMP - GEMINI SUCCESS]:\n" + aiText + "\n");
-
-                string cleanText = aiText.Replace("**", "").Replace("Summary:", "SUMMARY:").Replace("Techstack:", "TECHSTACK:").Trim();
-
-                if (cleanText.Contains("SUMMARY:") && cleanText.Contains("TECHSTACK:"))
-                {
-                    var parts = cleanText.Split(new[] { "TECHSTACK:" }, StringSplitOptions.None);
-
-                    string summaryPart = parts[0].Replace("SUMMARY:", "").Trim();
-                    string techStackPart = parts.Length > 1 ? parts[1].Trim() : "";
-
-                    repo.AiProjectSummary = summaryPart;
-                    repo.ExtractedTechStack = techStackPart;
-
-                    await _portfolioRepo.UpdateGithubRepoAsync(repo);
-
-                    await _telemetryService.LogLearningHistoryAsync(
-                        studentId: Guid.Empty,
-                        progressId: null,
-                        actionType: "AI_REPO_ANALYZED",
-                        durationSeconds: 0,
-                        details: $"AI đã phân tích xong repo bằng Gemini thành công."
-                    );
-
-                    Console.WriteLine($"[SUCCESS] Đã lưu phân tích Gemini cho repo: {repo.RepoName}");
-
-                    await _hubContext.Clients.All.SendAsync("AnalysisCompleted");
-
-                    return (200, "AI phân tích Repository thành công.");
-                }
-
-                return (500, $"AI trả về sai định dạng. Kết quả thực tế: {aiText}");
-            }
-            catch (Exception ex)
-            {
-                return (500, $"Lỗi xử lý dữ liệu sau khi gọi AI: {ex.Message}");
-            }
-        }
-
-        private static PortfolioDto MapToDto(EPortfolio? entity)
-        {
-            if (entity == null) return new PortfolioDto();
-            return new PortfolioDto
-            {
-                PortfolioId = entity.PortfolioId,
-                StudentId = entity.StudentId,
-                AiProfileSummary = !string.IsNullOrWhiteSpace(entity.AiProfileSummary)
-                                    ? entity.AiProfileSummary
-                                    : (entity.Student?.LatentTalentSummary ?? string.Empty),
-                ShareableUrl = entity.ShareableUrl,
-                CreatedAt = entity.CreatedAt,
-                Repositories = (entity.GithubRepositories ?? new List<GithubRepository>())
-                    .Select(r => new GithubRepoDto
-                    {
-                        RepoId = r.RepoId,
-                        RepoName = r.RepoName,
-                        GithubUrl = r.GithubUrl,
-                        ExtractedTechStack = r.ExtractedTechStack ?? string.Empty,
-                        AiProjectSummary = r.AiProjectSummary ?? string.Empty,
-                        SyncedAt = r.SyncedAt
-                    }).ToList()
-            };
-        }
-
-        // =========================================================================
-        // PHÂN HỆ MỚI: TẠO AI SUMMARY CHO PORTFOLIO & MASTER HANGFIRE PIPELINE
-        // =========================================================================
-
-        public async Task GenerateEPortfolioSummaryAsync(Guid studentId, Guid portfolioId)
-        {
-            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            if (portfolio == null) return;
-
-            string talentSummary = portfolio.Student?.LatentTalentSummary ?? "Sinh viên đang trong quá trình đánh giá năng lực cơ bản.";
-
-            var analyzedRepos = portfolio.GithubRepositories?
-                .Where(r => !string.IsNullOrWhiteSpace(r.AiProjectSummary))
-                .ToList() ?? new List<GithubRepository>();
-
-            if (!analyzedRepos.Any()) return;
-
-            string repoSummaries = string.Join("\n", analyzedRepos.Select(r =>
-                $"- Dự án {r.RepoName}: {r.AiProjectSummary} (Công nghệ: {r.ExtractedTechStack})"));
-
-            string prompt = $@"Bạn là một chuyên gia nhân sự cấp cao trong ngành IT. Dưới đây là dữ liệu của một ứng viên:
-
-[ĐÁNH GIÁ NĂNG LỰC CỐT LÕI]:
-{talentSummary}
-
-[CÁC DỰ ÁN THỰC TẾ]:
-{repoSummaries}
-
-Dựa trên dữ liệu này, hãy viết một đoạn 'Professional Summary' (khoảng 150-200 từ) để đặt ở trang chủ E-Portfolio của ứng viên. 
-YÊU CẦU:
-1. Nhấn mạnh sự kết hợp giữa tư duy nền tảng và khả năng áp dụng công nghệ thực tế.
-2. Viết dưới dạng một đoạn văn chuyên nghiệp, truyền cảm hứng.
-3. KHÔNG sử dụng Markdown (không in đậm, in nghiêng, gạch đầu dòng). KHÔNG bịa đặt thêm công nghệ.";
-
-            try
-            {
-                var chatService = _kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
-                var result = await chatService.GetChatMessageContentAsync(prompt);
-
-                string aiSummary = result.Content?.Trim() ?? string.Empty;
-
-                if (!string.IsNullOrEmpty(aiSummary))
-                {
-                    portfolio.AiProfileSummary = aiSummary;
-
-                    await _portfolioRepo.UpdatePortfolioAsync(portfolio);
-
-                    await _hubContext.Clients.All.SendAsync("PortfolioSummaryCompleted", studentId.ToString());
-                    Console.WriteLine($"[SUCCESS] Đã tạo xong AI Master Summary cho Portfolio: {portfolio.PortfolioId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[LỖI AI SUMMARY E-PORTFOLIO]: {ex.Message}");
-            }
-        }
-
+        #region 1. MASTER PIPELINE
         public async Task ProcessFullGithubPipelineAsync(Guid studentId, string githubUsername)
         {
-            // Bước 1: Gọi hàm đồng bộ (Chỉ kéo danh sách repo và nội dung README thô về DB)
+            // Bước 1: Kéo Code từ GitHub (Raw Data + README)
             var syncResult = await SyncGithubReposAsync(studentId, githubUsername);
             if (syncResult.StatusCode != 200) return;
 
-            await Task.Delay(1000);
-
-            // Fetch portfolio tại đây để luôn có portfolioId truyền cho bước 3
             var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            if (portfolio == null) return;
+            if (portfolio == null || portfolio.GithubRepositories == null) return;
 
-            // Bước 2: Bổ sung cập nhật Ngôn ngữ lập trình thực tế từ GitHub API
+            // Bước 2: AI Phân tích từng Repository chưa được phân tích (Bóc tách JSON: Domain, Complexity, Featured...)
+            var unanalyzedRepos = portfolio.GithubRepositories.Where(r => string.IsNullOrEmpty(r.AiProjectSummary)).ToList();
+            foreach (var repo in unanalyzedRepos)
+            {
+                await AnalyzeRepoWithAiAsync(repo.RepoId);
+            }
+
+            // Reload dữ liệu để lấy context mới nhất
+            portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
+
+            // Bước 3: Đánh giá độ phù hợp nghề nghiệp (Suitability & Latent Talent)
+            await EvaluateRoleSuitabilityAsync(studentId, portfolio!.PortfolioId);
+
+            // Bước 4: Viết Master Profile Summary và đóng gói toàn bộ Data
+            await GenerateEPortfolioSummaryAsync(studentId, portfolio.PortfolioId);
+
+            // Hoàn tất Pipeline, bắn SignalR cho UI hiển thị
+            await _hubContext.Clients.User(studentId.ToString()).SendAsync("PipelineCompleted");
+        }
+        #endregion
+
+        #region 2. GITHUB SYNC (RAW DATA FETCHING)
+        public async Task<(int StatusCode, string Message)> SyncGithubReposAsync(Guid studentId, string githubUsername)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId)
+                         ?? await _portfolioRepo.CreatePortfolioAsync(new EPortfolio { PortfolioId = Guid.NewGuid(), StudentId = studentId, CreatedAt = DateTime.Now });
+
             try
             {
                 var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
                 var githubToken = _config["GithubConfig:PersonalAccessToken"];
                 if (!string.IsNullOrEmpty(githubToken)) github.Credentials = new Credentials(githubToken);
 
-                if (portfolio.GithubRepositories != null)
-                {
-                    foreach (var dbRepo in portfolio.GithubRepositories)
-                    {
-                        string[] urlParts = dbRepo.GithubUrl.Replace("https://github.com/", "").Split('/');
-                        if (urlParts.Length >= 2)
-                        {
-                            string owner = urlParts[0];
-                            string repoName = urlParts[1];
+                var repos = await github.Repository.GetAllForUser(githubUsername);
+                int syncCount = 0;
+                var existingRepos = portfolio.GithubRepositories ?? new List<GithubRepository>();
 
-                            var languages = await github.Repository.GetAllLanguages(owner, repoName);
-                            if (languages.Any())
-                            {
-                                dbRepo.ExtractedTechStack = string.Join(", ", languages.Select(l => l.Name));
-                                await _portfolioRepo.UpdateGithubRepoAsync(dbRepo);
-                            }
-                        }
+                foreach (var repo in repos)
+                {
+                    if (repo.Fork || repo.Size == 0 || repo.Archived) continue;
+
+                    string readmeContent = string.Empty;
+                    try
+                    {
+                        var readme = await github.Repository.Content.GetReadme(repo.Id);
+                        readmeContent = readme.Content;
                     }
+                    catch (NotFoundException) { continue; } // Bỏ qua nếu không có README
+
+                    if (string.IsNullOrWhiteSpace(readmeContent) || readmeContent.Length < 50) continue;
+
+                    // Fetch Ngôn ngữ lập trình chính xác từ Octokit (thay cho AI đoán)
+                    var languages = await github.Repository.GetAllLanguages(repo.Owner.Login, repo.Name);
+                    string actualTechStack = languages.Any() ? string.Join(", ", languages.Select(l => l.Name)) : string.Empty;
+
+                    var dbRepo = existingRepos.FirstOrDefault(r => r.GithubUrl == repo.HtmlUrl);
+                    if (dbRepo != null)
+                    {
+                        dbRepo.ReadmeContent = readmeContent;
+                        dbRepo.ExtractedTechStack = actualTechStack; // Lưu TechStack thực tế
+                        dbRepo.SyncedAt = DateTime.Now;
+                        // Xóa Summary cũ để bắt AI đọc lại nếu README thay đổi
+                        dbRepo.AiProjectSummary = null;
+                        await _portfolioRepo.UpdateGithubRepoAsync(dbRepo);
+                    }
+                    else
+                    {
+                        await _portfolioRepo.SaveGithubRepoAsync(new GithubRepository
+                        {
+                            RepoId = Guid.NewGuid(),
+                            PortfolioId = portfolio.PortfolioId,
+                            RepoName = repo.Name,
+                            GithubUrl = repo.HtmlUrl,
+                            ExtractedTechStack = actualTechStack,
+                            ReadmeContent = readmeContent,
+                            SyncedAt = DateTime.Now
+                        });
+                    }
+                    syncCount++;
                 }
+                watch.Stop();
+                await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_SUCCESS", (int)watch.Elapsed.TotalSeconds, $"Đồng bộ {syncCount} repos");
+                return (200, $"Đồng bộ thành công {syncCount} dự án.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[WARNING-LANGUAGES] Không kéo được danh sách ngôn ngữ Octokit: {ex.Message}");
+                return (500, $"Lỗi kết nối GitHub: {ex.Message}");
+            }
+        }
+        #endregion
+
+        #region 3. AI REPOSITORY ANALYSIS (Generate JSON)
+        public async Task<(int StatusCode, string Message)> AnalyzeRepoWithAiAsync(Guid repoId)
+        {
+            var repo = await _portfolioRepo.GetGithubRepoByIdAsync(repoId);
+            if (repo == null || string.IsNullOrWhiteSpace(repo.ReadmeContent)) return (400, "Lỗi dữ liệu.");
+
+            string prompt = $@"Đọc file README của dự án sau:
+{repo.ReadmeContent}
+Hãy phân tích và trả về DUY NHẤT một chuỗi JSON hợp lệ với cấu trúc sau (KHÔNG dùng markdown ```json):
+{{
+  ""Summary"": ""Tóm tắt dự án trong 2-3 câu ngắn gọn"",
+  ""TechStack"": ""Liệt kê các công nghệ, framework, tools (cách nhau bằng dấu phẩy)"",
+  ""DifficultyStars"": [Đánh giá độ phức tạp từ 1 đến 5],
+  ""IsFeatured"": [true nếu dự án phức tạp/có giá trị thực tiễn, ngược lại false],
+  ""Domain"": ""Lĩnh vực (ví dụ: E-Commerce, Education, AI)"",
+  ""Contribution"": ""Các logic/chức năng chính đã được implement""
+}}";
+
+            var aiResponse = await CallGeminiAsync(prompt);
+            if (!string.IsNullOrEmpty(aiResponse))
+            {
+                // Parse thử JSON để trích xuất TechStack lưu vào cột vật lý trong DB
+                try
+                {
+                    using var doc = JsonDocument.Parse(aiResponse);
+                    if (doc.RootElement.TryGetProperty("TechStack", out var techStackElement))
+                    {
+                        string ts = techStackElement.GetString() ?? "";
+                        if (!string.IsNullOrWhiteSpace(ts))
+                        {
+                            repo.ExtractedTechStack = ts;
+                        }
+                    }
+                }
+                catch { /* Bỏ qua nếu lỗi parse, vẫn lưu nguyên raw JSON xuống AiProjectSummary */ }
+
+                // Lưu chuỗi JSON phân tích vào cột AiProjectSummary
+                repo.AiProjectSummary = aiResponse;
+                await _portfolioRepo.UpdateGithubRepoAsync(repo);
+
+                // FIX LỖI TREO UI: Bắn SignalR để tắt trạng thái "AI đang đọc..." trên Frontend
+                await _hubContext.Clients.All.SendAsync("AnalysisCompleted");
             }
 
-            // Bước 3: Tổng hợp và tính toán tỷ lệ % phù hợp nghề nghiệp
-            Console.WriteLine("[MASTER-PIPELINE] Bắt đầu đánh giá mức độ phù hợp Job Role...");
-            await EvaluateRoleSuitabilityAsync(studentId, portfolio.PortfolioId);
+            return (200, "Phân tích AI hoàn tất.");
         }
+        #endregion
 
+        #region 4. CAREER SUITABILITY & LATENT TALENT (Generate JSON)
         public async Task EvaluateRoleSuitabilityAsync(Guid studentId, Guid portfolioId)
         {
             var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
             if (portfolio == null) return;
 
-            // 1. Lấy năng lực học thuật ẩn (Latent Talent)
-            string academicTalent = portfolio.Student?.LatentTalentSummary ?? "Chưa có dữ liệu học thuật.";
-
-            // 2. Lấy dữ liệu các dự án thực tế đã được AI phân tích thành công
-            var validRepos = portfolio.GithubRepositories?
-                .Where(r => !string.IsNullOrEmpty(r.AiProjectSummary))
-                .ToList() ?? new List<GithubRepository>();
+            string academicTalent = portfolio.Student?.LatentTalentSummary ?? "Sinh viên có nền tảng cơ bản, đang trong quá trình phát triển năng lực cốt lõi.";
+            var validRepos = portfolio.GithubRepositories?.Where(r => !string.IsNullOrEmpty(r.AiProjectSummary)).ToList() ?? new();
 
             string projectContext = validRepos.Any()
-                ? string.Join("\n", validRepos.Select(r => $"- Dự án '{r.RepoName}': {r.AiProjectSummary} (Công nghệ: {r.ExtractedTechStack})"))
-                : "Chưa có dự án thực tế nào được phân tích.";
+                ? string.Join("\n", validRepos.Select(r => $"- {r.RepoName} (Stack: {r.ExtractedTechStack}): {r.AiProjectSummary}"))
+                : "Chưa có dự án.";
 
-            // 3. Prompt thiết kế theo chuẩn Nghiên cứu Hướng nghiệp
-            string prompt = $@"Bạn là một chuyên gia Định hướng nghề nghiệp IT cấp cao. Dựa trên hồ sơ của sinh viên, hãy thực hiện phân tích định lượng.
+            string prompt = $@"Bạn là chuyên gia Định hướng Nghề nghiệp IT. Đánh giá hồ sơ của sinh viên:
+[HỌC THUẬT]: {academicTalent}
+[DỰ ÁN THỰC TẾ]: {projectContext}
 
-[HỒ SƠ HỌC THUẬT & TƯ DUY ẨN]:
-{academicTalent}
+Trả về DUY NHẤT một chuỗi JSON hợp lệ (KHÔNG có markdown ```json). Cấu trúc chính xác:
+{{
+  ""Suitabilities"": [
+    {{ ""RoleName"": ""Backend Developer"", ""MatchPercentage"": [Số 0-100] }},
+    {{ ""RoleName"": ""Front-End Developer"", ""MatchPercentage"": [Số 0-100] }},
+    {{ ""RoleName"": ""Full-Stack Developer"", ""MatchPercentage"": [Số 0-100] }}
+  ],
+  ""Recommendation"": {{
+    ""RecommendedRole"": ""[Chọn 1 role tốt nhất]"",
+    ""ConfidencePercentage"": [Số 0-100],
+    ""Reason"": ""[Giải thích chi tiết 2 câu]"",
+    ""Strengths"": [""[Điểm mạnh 1]"", ""[Điểm mạnh 2]""],
+    ""Improvements"": [""[Điểm yếu 1]"", ""[Điểm yếu 2]""]
+  }},
+  ""LatentTalent"": {{
+    ""LogicalThinking"": [Số 0-100],
+    ""SystemDesign"": [Số 0-100],
+    ""ProblemSolving"": [Số 0-100],
+    ""UiUxSense"": [Số 0-100],
+    ""Communication"": [Số 0-100]
+  }}
+}}";
 
-[KINH NGHIỆM DỰ ÁN THỰC CHIẾN]:
-{projectContext}
+            var aiResponse = await CallGeminiAsync(prompt);
+            if (!string.IsNullOrEmpty(aiResponse))
+            {
+                // Tạm thời lưu Analysis JSON vào AiProfileSummary
+                portfolio.AiProfileSummary = aiResponse;
+                await _portfolioRepo.UpdatePortfolioAsync(portfolio);
+            }
+        }
+        #endregion
 
-YÊU CẦU BẮT BUỘC: 
-1. Đưa ra đánh giá tổng quan (Professional Summary) ngắn gọn trong 3-4 câu (KHÔNG dùng markdown).
-2. Tính toán phần trăm mức độ phù hợp (0% - 100%) cho 3 vị trí dựa trên dữ liệu thực tế: Backend Developer, Front-End Developer, Full-Stack Developer.
-3. Trả về đúng định dạng text thô, không giải thích dông dài, cấu trúc chính xác như sau:
-SUMMARY: [Nội dung đoạn văn tóm tắt hồ sơ năng lực của sinh viên]
-SUITABILITY:
-Backend Developer: [Số]%
-Front-End Developer: [Số]%
-Full-Stack Developer: [Số]%";
+        #region 5. E-PORTFOLIO MASTER SUMMARY (Merge JSON)
+        public async Task GenerateEPortfolioSummaryAsync(Guid studentId, Guid portfolioId)
+        {
+            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
+            if (portfolio == null || string.IsNullOrEmpty(portfolio.AiProfileSummary)) return;
 
+            // Truyền bản phân tích JSON (Suitability) hiện có vào để AI viết lời mở đầu
+            string analysisContext = portfolio.AiProfileSummary;
+
+            string prompt = $@"Dựa trên dữ liệu phân tích năng lực sau:
+{analysisContext}
+Hãy viết một đoạn 'Professional Summary' dài 150-200 từ, đóng vai trò là lời giới thiệu trên E-Portfolio.
+Yêu cầu: Không dùng Markdown. Văn phong chuyên nghiệp, truyền cảm hứng, nêu bật định hướng nghề nghiệp.";
+
+            string summaryText = await CallGeminiAsync(prompt);
+
+            if (!string.IsNullOrEmpty(summaryText))
+            {
+                // Bọc lại thành 1 JSON tổng có chứa cả [Đoạn văn mở đầu] và [Dữ liệu phân tích]
+                string safeSummaryText = summaryText.Replace("\"", "'").Replace("\n", " ").Replace("\r", "");
+
+                string finalJsonData = $@"{{
+                  ""ProfileSummaryText"": ""{safeSummaryText}"",
+                  ""AnalysisData"": {portfolio.AiProfileSummary}
+                }}";
+
+                portfolio.AiProfileSummary = finalJsonData;
+                await _portfolioRepo.UpdatePortfolioAsync(portfolio);
+            }
+        }
+        #endregion
+
+        #region 6. DATA AGGREGATION (MAP TO DTO)
+        private PortfolioDto MapToDto(EPortfolio entity)
+        {
+            var dto = new PortfolioDto
+            {
+                PortfolioId = entity.PortfolioId,
+                StudentId = entity.StudentId,
+                // Ưu tiên lấy FullName từ bảng Student. Fallback dùng phần đầu của Email hoặc Email tĩnh nếu chưa có.
+                StudentName = GetStudentDisplayName(entity),
+                ShareableUrl = entity.ShareableUrl,
+                CreatedAt = entity.CreatedAt,
+                Repositories = new List<GithubRepoDto>()
+            };
+
+            var repoList = new List<GithubRepoDto>();
+            if (entity.GithubRepositories != null)
+            {
+                foreach (var repo in entity.GithubRepositories)
+                {
+                    var repoDto = new GithubRepoDto
+                    {
+                        RepoId = repo.RepoId,
+                        RepoName = repo.RepoName,
+                        GithubUrl = repo.GithubUrl,
+                        ExtractedTechStack = repo.ExtractedTechStack ?? string.Empty,
+                        SyncedAt = repo.SyncedAt,
+                        DifficultyStars = 3
+                    };
+
+                    if (!string.IsNullOrEmpty(repo.AiProjectSummary) && repo.AiProjectSummary.StartsWith("{"))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(repo.AiProjectSummary);
+                            var root = doc.RootElement;
+                            repoDto.AiProjectSummary = root.GetProperty("Summary").GetString() ?? "";
+                            if (root.TryGetProperty("DifficultyStars", out var diff)) repoDto.DifficultyStars = diff.GetInt32();
+                            if (root.TryGetProperty("IsFeatured", out var feat)) repoDto.IsFeatured = feat.GetBoolean();
+                        }
+                        catch { repoDto.AiProjectSummary = repo.AiProjectSummary; }
+                    }
+                    else
+                    {
+                        repoDto.AiProjectSummary = repo.AiProjectSummary ?? "";
+                    }
+                    repoList.Add(repoDto);
+                }
+            }
+
+            dto.Repositories = repoList.OrderByDescending(r => r.IsFeatured).ThenByDescending(r => r.DifficultyStars).ToList();
+
+            if (!string.IsNullOrEmpty(entity.AiProfileSummary) && entity.AiProfileSummary.StartsWith("{"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(entity.AiProfileSummary);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("ProfileSummaryText", out var sumText))
+                        dto.AiProfileSummary = sumText.GetString();
+
+                    if (root.TryGetProperty("AnalysisData", out var analysisData))
+                    {
+                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        if (analysisData.TryGetProperty("Suitabilities", out var suit))
+                            dto.CareerSuitabilities = JsonSerializer.Deserialize<List<CareerSuitabilityDto>>(suit.GetRawText(), options) ?? new();
+                        if (analysisData.TryGetProperty("Recommendation", out var rec))
+                            dto.CareerRecommendation = JsonSerializer.Deserialize<CareerRecommendationDto>(rec.GetRawText(), options);
+                        if (analysisData.TryGetProperty("LatentTalent", out var talent))
+                            dto.LatentTalent = JsonSerializer.Deserialize<LatentTalentDto>(talent.GetRawText(), options);
+                    }
+                }
+                catch { dto.AiProfileSummary = "Hồ sơ đang trong quá trình AI phân tích..."; }
+            }
+            else
+            {
+                dto.AiProfileSummary = entity.AiProfileSummary;
+            }
+
+            // Dữ liệu GitHub tính toán thực tế từ danh sách Repo (Không random)
+            dto.GithubStats = new GithubStatsDto
+            {
+                TotalRepositories = repoList.Count,
+                TotalLanguages = repoList.SelectMany(r => (r.ExtractedTechStack ?? "").Split(","))
+                                         .Where(s => !string.IsNullOrWhiteSpace(s))
+                                         .Select(s => s.Trim()).Distinct().Count(),
+                TotalStars = 0, // Giá trị thực nên lấy từ Octokit lúc Sync
+                TotalCommits = 0, // Giá trị thực nên lấy từ Octokit lúc Sync
+                LastActive = repoList.Max(r => r.SyncedAt)?.ToString("dd/MM/yyyy")
+            };
+
+            // Academic lấy trực tiếp từ DB Student (dùng Dynamic để parse các trường nếu Entity có)
+            dto.AcademicHighlights = new AcademicHighlightDto
+            {
+                // Thay vì Hardcode 8.4, ta lấy Gpa thực, nếu không có để 0
+                Gpa = GetStudentGpa(entity),
+                TopSubjects = new List<string>(), // Đọc từ Transcripts DB (nếu có bảng)
+                WeakSubjects = new List<string>()
+            };
+
+            // KẾT HỢP DỮ LIỆU AI ĐỂ LÀM SKILL GAP DYNAMIC
+            string targetRole = dto.CareerRecommendation?.RecommendedRole ?? "Software Engineer";
+            var currentSkills = repoList.SelectMany(r => (r.ExtractedTechStack ?? "").Split(",")).Select(s => s.Trim().ToUpper()).Distinct().ToList();
+            var aiStrengths = dto.CareerRecommendation?.Strengths ?? new List<string>();
+            var aiImprovements = dto.CareerRecommendation?.Improvements ?? new List<string>();
+
+            dto.SkillGapAnalysis = new SkillGapReportDto
+            {
+                TargetRole = targetRole,
+                // Dùng AI Strengths và TechStack làm Matched Skills
+                MatchedSkills = currentSkills.Any() ? currentSkills : aiStrengths,
+                // Dùng AI Improvements làm Missing Skills để recruiter thấy điểm yếu khách quan
+                MissingSkills = aiImprovements,
+                MatchPercentage = CalculateMatchPercentage(currentSkills.Count, aiImprovements.Count)
+            };
+
+            dto.RoadmapProgress = new RoadmapProgressDto
+            {
+                RoadmapName = $"{targetRole} Roadmap",
+                CompletedNodes = currentSkills.Count, // Số lượng kỹ năng đã nắm bắt
+                InProgressNodes = 0, // Lấy từ DB UserRoadmap
+                RemainingNodes = aiImprovements.Count,
+                ProgressPercentage = dto.SkillGapAnalysis.MatchPercentage
+            };
+
+            // Timeline Sinh động dựa trên thời gian thực tế của Data
+            if (entity.CreatedAt.HasValue)
+            {
+                dto.CareerJourney.Add(new TimelineEventDto { Year = entity.CreatedAt.Value.Year.ToString(), EventTitle = "Khởi tạo định hướng", Description = "Bắt đầu xây dựng lộ trình sự nghiệp." });
+            }
+            if (repoList.Any())
+            {
+                dto.CareerJourney.Add(new TimelineEventDto { Year = repoList.Min(r => r.SyncedAt)?.Year.ToString() ?? DateTime.Now.Year.ToString(), EventTitle = "Thực chiến dự án", Description = $"Bắt đầu đẩy mạnh kỹ năng với {repoList.Count} dự án trên GitHub." });
+            }
+            if (dto.CareerRecommendation != null)
+            {
+                dto.CareerJourney.Add(new TimelineEventDto { Year = "Hiện tại", EventTitle = "Mục tiêu chuyên sâu", Description = $"AI xác định phù hợp nhất với vị trí {dto.CareerRecommendation.RecommendedRole}." });
+            }
+
+            return dto;
+        }
+
+        // --- Helper Methods Để Tránh Lỗi Compile Khi Truy Cập Entity.Student ---
+        private string GetStudentDisplayName(dynamic entity)
+        {
+            try
+            {
+                // Cố gắng đọc FullName, nếu không có đọc Name, nếu không có đọc Email
+                var student = entity.Student;
+                if (student != null)
+                {
+                    if (HasProperty(student, "FullName") && !string.IsNullOrEmpty(student.FullName)) return student.FullName;
+                    if (HasProperty(student, "Name") && !string.IsNullOrEmpty(student.Name)) return student.Name;
+                    if (HasProperty(student, "Email") && !string.IsNullOrEmpty(student.Email)) return student.Email.Split('@')[0];
+                }
+            }
+            catch { }
+            return "Sinh viên TechCompass"; // Fallback cuối cùng
+        }
+
+        private decimal GetStudentGpa(dynamic entity)
+        {
+            try
+            {
+                if (entity.Student != null && HasProperty(entity.Student, "Gpa"))
+                {
+                    return (decimal)entity.Student.Gpa;
+                }
+            }
+            catch { }
+            return 0m;
+        }
+
+        private int CalculateMatchPercentage(int have, int missing)
+        {
+            if (have == 0 && missing == 0) return 0;
+            int total = have + missing;
+            return (have * 100) / total;
+        }
+
+        private bool HasProperty(object obj, string propertyName)
+        {
+            return obj.GetType().GetProperty(propertyName) != null;
+        }
+        #endregion
+
+        #region UTILITIES
+        private async Task<string> CallGeminiAsync(string prompt)
+        {
             try
             {
                 var chatService = _kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
                 var result = await chatService.GetChatMessageContentAsync(prompt);
-                string aiResponse = result.Content?.Trim() ?? string.Empty;
+                string text = result.Content?.Trim() ?? string.Empty;
 
-                if (!string.IsNullOrEmpty(aiResponse) && aiResponse.Contains("SUMMARY:") && aiResponse.Contains("SUITABILITY:"))
-                {
-                    var parts = aiResponse.Split(new[] { "SUITABILITY:" }, StringSplitOptions.None);
-                    string cleanSummary = parts[0].Replace("SUMMARY:", "").Trim();
+                // Xóa bỏ wrapper markdown của Gemini nếu có để chuẩn hóa JSON
+                if (text.StartsWith("```json", StringComparison.OrdinalIgnoreCase)) text = text.Substring(7);
+                else if (text.StartsWith("```", StringComparison.OrdinalIgnoreCase)) text = text.Substring(3);
+                if (text.EndsWith("```")) text = text.Substring(0, text.Length - 3);
 
-                    portfolio.AiProfileSummary = cleanSummary;
-                    await _portfolioRepo.UpdatePortfolioAsync(portfolio);
-
-                    // Bắn SignalR thông báo hoàn tất toàn bộ tiến trình định hướng nghề nghiệp cao cấp
-                    await _hubContext.Clients.All.SendAsync("portfoliosummarycompleted", studentId.ToString());
-                    Console.WriteLine($"[RESEARCH SUCCESS] Đã phân tích xong độ khớp vai trò cho Student: {studentId}");
-                }
+                return text.Trim();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RESEARCH ERROR] Lỗi phân tích định hướng nghề nghiệp: {ex.Message}");
+                Console.WriteLine($"[GEMINI ERROR]: {ex.Message}");
+                return string.Empty;
             }
         }
+        #endregion
     }
 }
