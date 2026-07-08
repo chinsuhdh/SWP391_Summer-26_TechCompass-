@@ -123,7 +123,7 @@ namespace Service_TechCompass.Services
             // Giả sử: Kỹ năng có TrendScore >= 3.0 được coi là HOT
             // =======================================================
             var recentHotSkills = _context.TrendAnalyses // (Nhớ inject Swp391CareerRoadmapContext vào Service nhé)
-                .Where(t => t.TrendScore >= 1.0m)
+                .Where(t => t.TrendScore >= 3.0m)
                 .GroupBy(t => t.SkillNodeId)
                 .Select(g => new
                 {
