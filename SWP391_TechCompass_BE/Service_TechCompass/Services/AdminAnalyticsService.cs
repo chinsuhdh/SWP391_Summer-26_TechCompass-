@@ -1,7 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
-using Repository_TechCompass.Models;
 using Service_TechCompass.Interfaces;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Service_TechCompass.Services
@@ -15,38 +15,49 @@ namespace Service_TechCompass.Services
             _context = context;
         }
 
-        // 1. Phân tích thị trường (Market Analytics)
+        // 1. Market Analytics: Hiển thị top kỹ năng hot dựa trên TrendAnalysis
         public async Task<object> GetMarketAnalyticsAsync()
         {
-            // Code thống kê kỹ năng hot, lộ trình được chọn nhiều nhất...
-            return new
-            {
-                Status = "Success",
-                Message = "Lấy dữ liệu phân tích thị trường thành công",
-                Data = new { TopSkills = 10, TrendingPaths = 5 } // Thay bằng data thật
-            };
+            var topSkills = await _context.TrendAnalyses
+                .OrderByDescending(t => t.TrendScore)
+                .Take(5)
+                .Select(t => new {
+                    SkillName = _context.SkillNodes.FirstOrDefault(n => n.SkillNodeId == t.SkillNodeId).NodeName,
+                    t.TrendScore,
+                    t.DemandPercent
+                })
+                .ToListAsync();
+
+            return new { Status = "Success", Data = topSkills };
         }
 
-        // 2. Hoạt động của sinh viên (Student Activity)
+        // 2. Student Activity: Hiển thị log hoạt động mới nhất từ LearningHistories
         public async Task<object> GetStudentActivityAsync()
         {
-            // Code thống kê sinh viên đang online, tiến độ học tập...
-            return new
-            {
-                Status = "Success",
-                Message = "Lấy dữ liệu hoạt động sinh viên thành công",
-                Data = new { ActiveStudentsToday = 150, TestsCompleted = 45 } // Thay bằng data thật
-            };
+            var recentActivities = await _context.LearningHistories
+                .OrderByDescending(h => h.RecordedAt)
+                .Take(10)
+                .Select(h => new {
+                    h.ActionType,
+                    h.RecordedAt,
+                    StudentName = _context.Students
+                        .FirstOrDefault(s => s.RoadmapProgresses.Any(p => p.ProgressId == h.ProgressId))
+                        .FullName // Giả định có property FullName
+                })
+                .ToListAsync();
+
+            return new { Status = "Success", Data = recentActivities };
         }
 
-        // 3. Thống kê tổng quan (Student Stats) - Cái bạn đang có sẵn
+        // 3. Student Stats: Thống kê tổng quan + Tình trạng Scraping (JobPostings)
         public async Task<object> GetStudentStatsAsync()
         {
-            var totalStudents = await _context.Students.CountAsync();
             return new
             {
                 Status = "Success",
-                TotalStudents = totalStudents
+                TotalStudents = await _context.Students.CountAsync(),
+                TotalJobsScraped = await _context.JobPostings.CountAsync(),
+                LastScraped = await _context.JobPostings.MaxAsync(j => (DateTime?)j.ScrapedAt)
             };
         }
     }

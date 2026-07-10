@@ -34,6 +34,14 @@ namespace API_TechCompass.Controllers
         }
 
         // --- API SKILL NODE ---
+        [HttpGet("skill-nodes")]
+        public async Task<IActionResult> GetAllSkillNodes()
+        {
+            // Endpoint này giúp Frontend lấy danh sách Node đổ vào dropdown
+            var res = await _contentService.GetAllSkillNodesAsync();
+            return StatusCode(res.StatusCode, new { message = res.Message, data = res.Data });
+        }
+
         [HttpPost("skill-nodes")]
         public async Task<IActionResult> CreateSkillNode([FromBody] CreateUpdateSkillNodeDto request)
         {
@@ -43,11 +51,47 @@ namespace API_TechCompass.Controllers
         }
 
         // --- API LEARNING RESOURCE ---
+        [HttpGet("learning-resources")]
+        public async Task<IActionResult> GetAllResources(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50,
+            [FromQuery] int? nodeId = null,
+            [FromQuery] string? search = null)
+        {
+            // API phân trang phục vụ cho việc render danh sách lớn hơn 1000 bản ghi thỏa mãn điều kiện lọc
+            var res = await _contentService.GetAllLearningResourcesAsync(page, pageSize, nodeId, search);
+            return StatusCode(res.StatusCode, new { message = res.Message, data = res.Data });
+        }
+
+        [HttpGet("learning-resources/{id}")]
+        public async Task<IActionResult> GetResourceById(int id)
+        {
+            // Endpoint bổ sung giúp form Edit load lại dữ liệu cũ theo ID tài nguyên
+            var res = await _contentService.GetLearningResourceByIdAsync(id);
+            return StatusCode(res.StatusCode, new { message = res.Message, data = res.Data });
+        }
+
         [HttpPost("learning-resources")]
         public async Task<IActionResult> CreateResource([FromBody] CreateUpdateLearningResourceDto request)
         {
             if (!IsAdminUser()) return StatusCode(403, new { message = "Không có quyền Admin." });
             var res = await _contentService.CreateLearningResourceAsync(request);
+            return StatusCode(res.StatusCode, new { message = res.Message });
+        }
+
+        [HttpPut("learning-resources/{id}")]
+        public async Task<IActionResult> UpdateResource(int id, [FromBody] CreateUpdateLearningResourceDto request)
+        {
+            if (!IsAdminUser()) return StatusCode(403, new { message = "Không có quyền Admin." });
+            var res = await _contentService.UpdateLearningResourceAsync(id, request);
+            return StatusCode(res.StatusCode, new { message = res.Message });
+        }
+
+        [HttpDelete("learning-resources/{id}")]
+        public async Task<IActionResult> DeleteResource(int id)
+        {
+            if (!IsAdminUser()) return StatusCode(403, new { message = "Không có quyền Admin." });
+            var res = await _contentService.DeleteLearningResourceAsync(id);
             return StatusCode(res.StatusCode, new { message = res.Message });
         }
 

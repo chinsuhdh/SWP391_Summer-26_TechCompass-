@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Service_TechCompass/Services/AdminContentService.cs
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -163,19 +164,58 @@ namespace Service_TechCompass.Services
         #endregion
 
         #region LEARNING RESOURCE CRUD
-        public Task<(int StatusCode, string Message, List<LearningResourceDto>? Data)> GetAllLearningResourcesAsync()
+
+        // Đã cập nhật: Hỗ trợ Phân trang và Lọc
+        public Task<(int StatusCode, string Message, PagedResult<LearningResourceDto>? Data)> GetAllLearningResourcesAsync(
+            int page = 1,
+            int pageSize = 50,
+            int? nodeId = null,
+            string searchTitle = null)
         {
-            var data = _contentRepo.GetAllLearningResources().Select(x => new LearningResourceDto
+            // Ép kiểu IQueryable để thao tác bộ lọc trước khi kéo data về RAM (nếu repo hỗ trợ IQueryable)
+            var query = _contentRepo.GetAllLearningResources().AsQueryable();
+
+            // Lọc theo NodeId
+            if (nodeId.HasValue)
             {
-                ResourceId = x.ResourceId,
-                SkillNodeId = x.SkillNodeId,
-                Title = x.Title,
-                Url = x.Url,
-                ResourceType = x.ResourceType,
-                Provider = x.Provider,
-                DifficultyLevel = x.DifficultyLevel
-            }).ToList();
-            return Task.FromResult<(int, string, List<LearningResourceDto>?)>((200, "Thành công", data));
+                query = query.Where(x => x.SkillNodeId == nodeId.Value);
+            }
+
+            // Lọc theo Title (Search)
+            if (!string.IsNullOrWhiteSpace(searchTitle))
+            {
+                // Note: EF Core sẽ dịch Contains sang LIKE '%searchTitle%' trong SQL Server
+                query = query.Where(x => x.Title.Contains(searchTitle));
+            }
+
+            // Lấy tổng số lượng bản ghi thỏa mãn điều kiện lọc
+            int totalCount = query.Count();
+
+            // Cắt trang (Skip & Take) và chuyển sang DTO
+            var items = query
+                .OrderByDescending(x => x.ResourceId) // Nên order trước khi phân trang
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new LearningResourceDto
+                {
+                    ResourceId = x.ResourceId,
+                    SkillNodeId = x.SkillNodeId,
+                    Title = x.Title,
+                    Url = x.Url,
+                    ResourceType = x.ResourceType,
+                    Provider = x.Provider,
+                    DifficultyLevel = x.DifficultyLevel
+                }).ToList();
+
+            var result = new PagedResult<LearningResourceDto>
+            {
+                Items = items,
+                TotalCount = totalCount,
+                PageNumber = page,
+                PageSize = pageSize
+            };
+
+            return Task.FromResult<(int, string, PagedResult<LearningResourceDto>?)>((200, "Thành công", result));
         }
 
         public Task<(int StatusCode, string Message, LearningResourceDto? Data)> GetLearningResourceByIdAsync(int id)
