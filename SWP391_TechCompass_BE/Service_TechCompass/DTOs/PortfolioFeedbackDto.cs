@@ -21,4 +21,14 @@ namespace Service_TechCompass.DTOs
         public string Content { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
+
+    // Thêm DTO này nếu chưa có
+    public class StudentFeedbackDto
+    {
+        public Guid SessionId { get; set; }
+        public string MentorName { get; set; } = string.Empty;
+        public string MentorCompany { get; set; } = string.Empty;
+        public string ReviewNotes { get; set; } = string.Empty;
+        public DateTime? ScheduledAt { get; set; }
+    }
 }

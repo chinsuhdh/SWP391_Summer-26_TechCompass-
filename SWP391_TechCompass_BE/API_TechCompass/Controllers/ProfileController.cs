@@ -111,5 +111,25 @@ namespace API_TechCompass.Controllers
                 return StatusCode(500, new { message = "Lỗi khi tải danh sách ngành nghề", detail = ex.Message });
             }
         }
+
+        [HttpGet("my-feedbacks")]
+        [Authorize(Roles = "Student")]
+        public async Task<IActionResult> GetMyFeedbacks()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+                return Unauthorized(new { message = "Token không hợp lệ." });
+
+            // Gọi thẳng xuống Service
+            var result = await _profileService.GetMyFeedbacksAsync(userId);
+
+            if (result.StatusCode != 200)
+            {
+                return StatusCode(result.StatusCode, new { message = result.Message });
+            }
+
+            // Trả về trực tiếp List Data để Frontend map luôn vào state (response.data)
+            return Ok(result.Data);
+        }
     }
 }

@@ -8,5 +8,10 @@ namespace Service_TechCompass.Interfaces
     {
         Task<List<StudentRoleStatDto>> GetStudentDistributionByRoleAsync();
         Task<List<CohortSkillGapDto>> GetTopCohortSkillGapsAsync(int topCount);
+
+        // CÁC HÀM MỚI BỔ SUNG
+        Task<PagedResult<CounselorStudentDto>> GetStudentsProgressAsync(int pageNumber, int pageSize, int? roleId);
+        Task<AssessmentStatDto> GetAssessmentStatsAsync();
+        Task<List<MarketAlignmentDto>> GetMarketAlignmentAsync();
     }
 }

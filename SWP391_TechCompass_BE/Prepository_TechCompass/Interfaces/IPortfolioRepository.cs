@@ -15,5 +15,7 @@ public interface IPortfolioRepository
     // THÊM DÒNG NÀY VÀO:
     Task<bool> SyncGithubReposAsync(Guid portfolioId, string githubUsername);
 
+    Task<EPortfolio?> GetPortfolioByIdAsync(Guid portfolioId);
+    Task<bool> SaveFeedbackSessionAsync(MentorSession session); // Hoặc tên hàm tương đương dùng để lưu MentorSession của bạn
 
 }

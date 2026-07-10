@@ -95,6 +95,10 @@ namespace API_TechCompass
             builder.Services.AddHttpClient<ICareerService, CareerService>();
             builder.Services.AddHttpClient<IMarketPulseService, MarketPulseService>();
 
+            // Thêm dòng này vào Program.cs (trong phần AddServices)
+            builder.Services.AddScoped<ICounselorService, CounselorService>();
+            builder.Services.AddScoped<IMentorService, MentorService>();
+
             builder.Services.AddSignalR();
             builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
             builder.Services.AddScoped<ITelemetryService, TelemetryService>();

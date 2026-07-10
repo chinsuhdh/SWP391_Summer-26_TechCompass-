@@ -2,11 +2,13 @@
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Google.GenAI.Types;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
@@ -21,39 +23,35 @@ namespace Service_TechCompass.Services
         private readonly IUserRepository _userRepo;
         private readonly IChatCompletionService _chatCompletionService;
         private readonly IHubContext<RoadmapNotificationHub> _hubContext;
+        private readonly Swp391CareerRoadmapContext _context;
 
         public StudentProfileService(
             IUserRepository userRepo,
             Kernel kernel,
-            IHubContext<RoadmapNotificationHub> hubContext)
+            IHubContext<RoadmapNotificationHub> hubContext,
+            Swp391CareerRoadmapContext context)
         {
             _userRepo = userRepo;
             _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
             _hubContext = hubContext;
+            _context = context; 
         }
 
         public async Task<(int StatusCode, string Message, object? Data)> GetProfileAsync(Guid userId)
         {
-            // Sử dụng await bất đồng bộ thực sự
             var user = await _userRepo.GetUserByIdAsync(userId);
             if (user == null)
             {
                 return (404, "Không tìm thấy tài khoản người dùng.", null);
             }
 
-            var baseProfile = new
+            string roleName = user.RoleId switch
             {
-                UserId = user.UserId,
-                Email = user.Email,
-                RoleId = user.RoleId,
-                RoleName = user.RoleId switch
-                {
-                    1 => "Admin",
-                    2 => "Student",
-                    3 => "Mentor",
-                    4 => "Counselor",
-                    _ => "User"
-                }
+                1 => "Admin",
+                2 => "Student",
+                3 => "Mentor",
+                4 => "Counselor",
+                _ => "User"
             };
 
             switch (user.RoleId)
@@ -61,21 +59,23 @@ namespace Service_TechCompass.Services
                 case 1: // Admin
                     return (200, "Lấy thông tin Admin thành công.", new
                     {
-                        User = baseProfile,
-                        Details = new { FullName = "System Administrator" }
+                        UserId = user.UserId,
+                        Email = user.Email,
+                        RoleId = user.RoleId,
+                        RoleName = roleName,
+                        FullName = "System Administrator"
                     });
 
                 case 2: // Student
                     var student = await _userRepo.GetStudentByUserIdAsync(userId);
                     if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.", null);
 
-                    // ĐÃ SỬA & LÀM PHẲNG: Không chia User/Details nữa để FE mapping trực tiếp ăn ngay dữ liệu
                     return (200, "Lấy thông tin Sinh viên thành công.", new
                     {
                         UserId = user.UserId,
                         Email = user.Email,
                         RoleId = user.RoleId,
-                        RoleName = "Student",
+                        RoleName = roleName,
                         FullName = student.FullName,
                         StudentCode = student.StudentCode,
                         LatentTalentSummary = student.LatentTalentSummary,
@@ -87,35 +87,44 @@ namespace Service_TechCompass.Services
                     var mentor = await _userRepo.GetMentorByUserIdAsync(userId);
                     if (mentor == null) return (404, "Không tìm thấy hồ sơ Mentor.", null);
 
+                    // ĐÃ LÀM PHẲNG DỮ LIỆU MENTOR
                     return (200, "Lấy thông tin Mentor thành công.", new
                     {
-                        User = baseProfile,
-                        Details = new
-                        {
-                            FullName = mentor.FullName,
-                            ExpertiseTags = mentor.ExpertiseTags,
-                            CurrentCompany = mentor.CurrentCompany,
-                            LinkedinUrl = mentor.LinkedinUrl
-                        }
+                        UserId = user.UserId,
+                        Email = user.Email,
+                        RoleId = user.RoleId,
+                        RoleName = roleName,
+                        FullName = mentor.FullName,
+                        ExpertiseTags = mentor.ExpertiseTags,
+                        CurrentCompany = mentor.CurrentCompany,
+                        LinkedinUrl = mentor.LinkedinUrl
                     });
 
                 case 4: // Counselor
                     var counselor = await _userRepo.GetCounselorByUserIdAsync(userId);
                     if (counselor == null) return (404, "Không tìm thấy hồ sơ Counselor.", null);
 
+                    // ĐÃ LÀM PHẲNG DỮ LIỆU COUNSELOR
                     return (200, "Lấy thông tin Counselor thành công.", new
                     {
-                        User = baseProfile,
-                        Details = new
-                        {
-                            FullName = counselor.FullName,
-                            Department = counselor.Department,
-                            UpdatedAt = counselor.UpdatedAt
-                        }
+                        UserId = user.UserId,
+                        Email = user.Email,
+                        RoleId = user.RoleId,
+                        RoleName = roleName,
+                        FullName = counselor.FullName,
+                        Department = counselor.Department,
+                        UpdatedAt = counselor.UpdatedAt
                     });
 
                 default:
-                    return (200, "Lấy thông tin thành công.", new { User = baseProfile });
+                    return (200, "Lấy thông tin thành công.", new
+                    {
+                        UserId = user.UserId,
+                        Email = user.Email,
+                        RoleId = user.RoleId,
+                        RoleName = roleName,
+                        FullName = "Người dùng ẩn danh"
+                    });
             }
         }
 
@@ -232,6 +241,37 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
             catch (Exception ex)
             {
                 return (500, $"Lỗi hệ thống khi xử lý file: {ex.Message}", null);
+            }
+        }
+
+        public async Task<(int StatusCode, string Message, List<StudentFeedbackDto>? Data)> GetMyFeedbacksAsync(Guid userId)
+        {
+            try
+            {
+                var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
+                if (student == null)
+                    return (404, "Không tìm thấy hồ sơ sinh viên.", null);
+
+                var feedbacks = await _context.MentorSessions
+                    .Include(ms => ms.Mentor)
+                        .ThenInclude(m => m.User)
+                    .Where(ms => ms.StudentId == student.StudentId && ms.Status == "Completed" && ms.ReviewNotes != null)
+                    .OrderByDescending(ms => ms.ScheduledAt)
+                    .Select(ms => new StudentFeedbackDto
+                    {
+                        SessionId = ms.SessionId,
+                        MentorName = ms.Mentor.FullName ?? "Chuyên gia ẩn danh",
+                        MentorCompany = ms.Mentor.CurrentCompany ?? "Tech Industry",
+                        ReviewNotes = ms.ReviewNotes,
+                        ScheduledAt = ms.ScheduledAt
+                    })
+                    .ToListAsync();
+
+                return (200, "Lấy danh sách nhận xét thành công.", feedbacks);
+            }
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi hệ thống: {ex.Message}", null);
             }
         }
     }

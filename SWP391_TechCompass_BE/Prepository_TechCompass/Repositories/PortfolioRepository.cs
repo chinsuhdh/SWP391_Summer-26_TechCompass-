@@ -14,6 +14,7 @@ namespace Repository_TechCompass.Repositories
         {
             _context = context;
         }
+
         public async Task<bool> SyncGithubReposAsync(Guid portfolioId, string githubUsername)
         {
             // Chuyển toàn bộ logic đồng bộ GitHub từ Service sang đây (để tách tầng Repository)
@@ -21,11 +22,12 @@ namespace Repository_TechCompass.Repositories
             // Cách tốt nhất là để ở đây để đúng kiến trúc Repository Pattern.
             return true;
         }
+
         public async Task<EPortfolio?> GetPortfolioByStudentIdAsync(Guid studentId)
         {
             return await _context.EPortfolios
                 .Include(p => p.GithubRepositories)
-                .Include(p => p.Student) 
+                .Include(p => p.Student)
                 .FirstOrDefaultAsync(p => p.StudentId == studentId);
         }
 
@@ -78,6 +80,31 @@ namespace Repository_TechCompass.Repositories
             await _context.SaveChangesAsync();
         }
 
+        // ==========================================
+        // THÊM 2 HÀM CÒN THIẾU ĐỂ FIX LỖI INTERFACE
+        // ==========================================
 
+        public async Task<EPortfolio?> GetPortfolioByIdAsync(Guid portfolioId)
+        {
+            // Include thêm các bảng liên quan để AI có context khi phân tích
+            return await _context.EPortfolios
+                .Include(p => p.GithubRepositories)
+                .Include(p => p.Student)
+                .FirstOrDefaultAsync(p => p.PortfolioId == portfolioId);
+        }
+
+        public async Task<bool> SaveFeedbackSessionAsync(MentorSession session)
+        {
+            try
+            {
+                _context.MentorSessions.Add(session);
+                var result = await _context.SaveChangesAsync();
+                return result > 0; // Trả về true nếu lưu thành công
+            }
+            catch (Exception)
+            {
+                return false; // Có thể log exception ở đây nếu cần
+            }
+        }
     }
 }

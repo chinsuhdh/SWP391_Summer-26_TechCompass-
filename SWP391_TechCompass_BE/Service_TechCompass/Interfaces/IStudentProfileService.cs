@@ -8,5 +8,7 @@ namespace Service_TechCompass.Interfaces
         Task<(int StatusCode, string Message, object? Data)> GetProfileAsync(Guid userId);
         Task<(int StatusCode, string Message)> UpdateProfileAsync(Guid userId, UpdateStudentProfileDto request);
         Task<(int StatusCode, string Message, object? Data)> ProcessTranscriptAsync(Guid userId, IFormFile file);
+
+        Task<(int StatusCode, string Message, List<StudentFeedbackDto>? Data)> GetMyFeedbacksAsync(Guid userId);
     }
 }
