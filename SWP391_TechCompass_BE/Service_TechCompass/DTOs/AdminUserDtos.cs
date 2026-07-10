@@ -1,7 +1,9 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace Service_TechCompass.DTOs
 {
+    // 1. DTO dùng để Get danh sách và Xem chi tiết
     public class AdminUserDetailDto
     {
         public Guid UserId { get; set; }
@@ -12,19 +14,32 @@ namespace Service_TechCompass.DTOs
         public DateTime? CreatedAt { get; set; }
     }
 
+    // 2. DTO ĐÃ GỘP dùng cho chức năng Tạo mới (Gồm cả Admin, Student, Mentor, Counselor)
     public class AdminCreateUserDto
     {
-        [Required, EmailAddress]
+        [Required(ErrorMessage = "Email là bắt buộc")]
+        [EmailAddress(ErrorMessage = "Định dạng email không hợp lệ")]
         public string Email { get; set; } = string.Empty;
 
-        [Required, MinLength(6, ErrorMessage = "Mật khẩu tối thiểu phải từ 6 ký tự")]
+        [Required(ErrorMessage = "Mật khẩu là bắt buộc")]
+        [MinLength(6, ErrorMessage = "Mật khẩu tối thiểu phải từ 6 ký tự")]
         public string Password { get; set; } = string.Empty;
 
-        [Required]
-        public int RoleId { get; set; }
+        [Required(ErrorMessage = "Họ tên là bắt buộc")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Role ID là bắt buộc")]
+        public int RoleId { get; set; } // 1: Admin, 2: Student, 3: Mentor, 4: Counselor
+
         public bool IsActive { get; set; } = true;
+
+        // --- Các trường tùy chọn (Tùy thuộc vào Role) ---
+        public string? CurrentCompany { get; set; } // Dành cho Mentor
+        public string? ExpertiseTags { get; set; }  // Dành cho Mentor
+        public string? Department { get; set; }     // Dành cho Counselor
     }
 
+    // 3. DTO dùng cho chức năng Cập nhật (Sửa)
     public class AdminUpdateUserDto
     {
         [Required]
