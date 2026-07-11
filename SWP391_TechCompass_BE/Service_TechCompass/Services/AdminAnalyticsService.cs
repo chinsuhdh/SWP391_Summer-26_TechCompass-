@@ -1,8 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Repository_TechCompass;
-using Service_TechCompass.Interfaces;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass;
+using Service_TechCompass.Interfaces;
 
 namespace Service_TechCompass.Services
 {
@@ -15,23 +17,75 @@ namespace Service_TechCompass.Services
             _context = context;
         }
 
-        // 1. Market Analytics: Hiển thị top kỹ năng hot dựa trên TrendAnalysis
+        // 1. Market Analytics: Lấy Top 10 kèm đối chiếu dữ liệu
         public async Task<object> GetMarketAnalyticsAsync()
         {
-            var topSkills = await _context.TrendAnalyses
-                .OrderByDescending(t => t.TrendScore)
-                .Take(5)
-                .Select(t => new {
-                    SkillName = _context.SkillNodes.FirstOrDefault(n => n.SkillNodeId == t.SkillNodeId).NodeName,
-                    t.TrendScore,
-                    t.DemandPercent
-                })
+            // Bước 1: Xác định ngày cào mới nhất và ngày ngay trước đó
+            var latestDate = await _context.TrendAnalyses.MaxAsync(t => (DateOnly?)t.AnalyzedDate);
+
+            if (latestDate == null)
+            {
+                return new { Status = "Success", Data = new List<object>() };
+            }
+
+            var previousDate = await _context.TrendAnalyses
+                .Where(t => t.AnalyzedDate < latestDate)
+                .MaxAsync(t => (DateOnly?)t.AnalyzedDate);
+
+            // Bước 2: Kéo data Hôm nay, Join bảng để lấy Tên và Gom nhóm (Loại bỏ lặp tên)
+            var todayRaw = await _context.TrendAnalyses
+                .Where(t => t.AnalyzedDate == latestDate)
+                .Join(_context.SkillNodes,
+                      t => t.SkillNodeId,
+                      n => n.SkillNodeId,
+                      (t, n) => new { SkillName = n.NodeName, Score = t.TrendScore })
                 .ToListAsync();
 
-            return new { Status = "Success", Data = topSkills };
+            var topToday = todayRaw
+                .GroupBy(x => x.SkillName)
+                .Select(g => new
+                {
+                    SkillName = g.Key,
+                    ScoreToday = g.Max(x => x.Score) // Nếu có nhiều ID trùng tên, lấy điểm cao nhất
+                })
+                .OrderByDescending(x => x.ScoreToday)
+                .Take(10)
+                .ToList();
+
+            // Bước 3: Tương tự, kéo data Hôm qua (nếu có)
+            var yesterdayRaw = previousDate != null
+                ? await _context.TrendAnalyses
+                    .Where(t => t.AnalyzedDate == previousDate)
+                    .Join(_context.SkillNodes,
+                          t => t.SkillNodeId,
+                          n => n.SkillNodeId,
+                          (t, n) => new { SkillName = n.NodeName, Score = t.TrendScore })
+                    .ToListAsync()
+                : null;
+
+            // Bước 4: Đối chiếu và ghép data trên RAM bằng C# (Tuyệt đối an toàn, không lo lỗi EF Core)
+            var result = topToday.Select(today =>
+            {
+                // Tìm tất cả các dòng của hôm qua có cùng Tên
+                var yesterdayData = yesterdayRaw?.Where(y => y.SkillName == today.SkillName).ToList();
+
+                // Trích xuất điểm (Nếu không có lấy mặc định là 0)
+                var scoreYesterday = (yesterdayData != null && yesterdayData.Any())
+                                        ? yesterdayData.Max(y => y.Score)
+                                        : 0;
+
+                return new
+                {
+                    SkillName = today.SkillName,
+                    ScoreToday = today.ScoreToday,
+                    ScoreYesterday = scoreYesterday
+                };
+            }).ToList();
+
+            return new { Status = "Success", Data = result };
         }
 
-        // 2. Student Activity: Hiển thị log hoạt động mới nhất từ LearningHistories
+        // 2. Student Activity
         public async Task<object> GetStudentActivityAsync()
         {
             var recentActivities = await _context.LearningHistories
@@ -42,14 +96,14 @@ namespace Service_TechCompass.Services
                     h.RecordedAt,
                     StudentName = _context.Students
                         .FirstOrDefault(s => s.RoadmapProgresses.Any(p => p.ProgressId == h.ProgressId))
-                        .FullName // Giả định có property FullName
+                        .FullName
                 })
                 .ToListAsync();
 
             return new { Status = "Success", Data = recentActivities };
         }
 
-        // 3. Student Stats: Thống kê tổng quan + Tình trạng Scraping (JobPostings)
+        // 3. Student Stats
         public async Task<object> GetStudentStatsAsync()
         {
             return new

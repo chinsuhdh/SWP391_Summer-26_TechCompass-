@@ -8,5 +8,9 @@ namespace Service_TechCompass.Interfaces
     {
         Task<(int StatusCode, string Message, List<AiRecommendationDto>? Data)> GetAllAiRecommendationsAsync();
         Task<(int StatusCode, string Message, List<SystemLogDto>? Data)> GetSystemLogsAsync();
+
+        Task<(int StatusCode, string Message, object? Data)> GetSystemHealthAsync();
+
+        Task<(int StatusCode, string Message, object? Data)> GetAiSummaryAsync();
     }
 }
