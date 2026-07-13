@@ -115,19 +115,38 @@ namespace API_TechCompass
             // 5. AUTHENTICATION & JWT
             var jwtConfig = builder.Configuration.GetSection("Jwt");
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtConfig["Issuer"],
+            ValidAudience = jwtConfig["Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!))
+        };
+
+        // THÊM ĐOẠN NÀY ĐỂ SIGNALR ĐỌC ĐƯỢC TOKEN
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
             {
-                options.TokenValidationParameters = new TokenValidationParameters
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                // Nếu request có token và đang gọi vào endpoint của SignalR
+                if (!string.IsNullOrEmpty(accessToken) &&
+                   (path.StartsWithSegments("/hubs") || path.StartsWithSegments("/portfolioHub")))
                 {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidIssuer = jwtConfig["Issuer"],
-                    ValidAudience = jwtConfig["Audience"],
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!))
-                };
-            });
+                    // Cấp token cho context
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
 
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();

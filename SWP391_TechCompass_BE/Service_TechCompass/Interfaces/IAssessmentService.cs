@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Service_TechCompass.DTOs.Assessment;
 using Repository_TechCompass.Models;
@@ -16,7 +17,8 @@ namespace Service_TechCompass.Interfaces
 
         Task<IEnumerable<object>> GetAllSkillNodesAsync();
 
-        Task<CodingExercise> GetOrGenerateCodingExerciseAsync(int skillNodeId);
+        // ĐÃ CẬP NHẬT Ở ĐÂY: Thêm tham số bool forceGenerate = false
+        Task<CodingExercise> GetOrGenerateCodingExerciseAsync(int skillNodeId, bool forceGenerate = false);
 
         Task<object?> GetMyLatestNodeResultAsync(Guid studentId, int skillNodeId);
 
@@ -25,7 +27,6 @@ namespace Service_TechCompass.Interfaces
 
         Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission);
 
-        // Thêm 2 hàm này vào interface
         Task<List<QuizQuestionDto>> GetComprehensiveQuizByRoleAsync(int roleId);
         Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId);
 

@@ -162,13 +162,18 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             return nodes.Select(n => new { id = n.SkillNodeId, name = n.NodeName });
         }
 
-        public async Task<CodingExercise> GetOrGenerateCodingExerciseAsync(int skillNodeId)
+        // ĐÃ CẬP NHẬT: Thêm tham số forceGenerate = false
+        public async Task<CodingExercise> GetOrGenerateCodingExerciseAsync(int skillNodeId, bool forceGenerate = false)
         {
-            var existingExercise = await _repository.GetCodingExerciseByNodeAsync(skillNodeId);
-            if (existingExercise != null)
+            // Nếu không ép sinh mới, tìm bài cũ trong DB
+            if (!forceGenerate)
             {
-                existingExercise.SkillNode = null!;
-                return existingExercise;
+                var existingExercise = await _repository.GetCodingExerciseByNodeAsync(skillNodeId);
+                if (existingExercise != null)
+                {
+                    existingExercise.SkillNode = null!;
+                    return existingExercise;
+                }
             }
 
             var node = await _repository.GetSkillNodeByIdAsync(skillNodeId);
@@ -582,14 +587,17 @@ Chỉ trả về nội dung nhận xét.";
             }).ToList();
         }
 
+        // ĐÃ CẬP NHẬT: Trộn ngẫu nhiên bài Code và ép AI sinh đề mới bằng forceGenerate: true
         public async Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId)
         {
             var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
             if (nodes == null || !nodes.Any()) throw new Exception("Chưa có kỹ năng nào được cấu hình.");
 
-            var targetNode = nodes.FirstOrDefault(n => n.IsCodingRequired == true) ?? nodes.First();
+            var codingNodes = nodes.Where(n => n.IsCodingRequired == true).ToList();
+            var targetNode = codingNodes.OrderBy(x => Guid.NewGuid()).FirstOrDefault() ?? nodes.First();
 
-            return await GetOrGenerateCodingExerciseAsync(targetNode.SkillNodeId);
+            // CHÚ Ý CHỖ NÀY: Truyền forceGenerate: true
+            return await GetOrGenerateCodingExerciseAsync(targetNode.SkillNodeId, forceGenerate: true);
         }
 
         private async Task<List<AssessmentQuestion>> GenerateAndSaveQuestionsForNodeAsync(int skillNodeId, string nodeName, int count)
