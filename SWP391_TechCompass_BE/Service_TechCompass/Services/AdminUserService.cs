@@ -12,7 +12,6 @@ namespace Service_TechCompass.Services
 {
     public class AdminUserService : IAdminUserService
     {
-        // Sử dụng trực tiếp Context để dễ dàng truy vấn và thêm dữ liệu vào nhiều bảng cùng lúc
         private readonly Swp391CareerRoadmapContext _context;
 
         public AdminUserService(Swp391CareerRoadmapContext context)
@@ -55,7 +54,7 @@ namespace Service_TechCompass.Services
             return (200, "Thành công", data);
         }
 
-        // 3. TẠO NGƯỜI DÙNG MỚI (GỘP CHUNG MENTOR / COUNSELOR)
+        // 3. TẠO NGƯỜI DÙNG MỚI (GỘP CHUNG TẤT CẢ ROLE)
         public async Task<(int StatusCode, string Message)> CreateUserAsync(AdminCreateUserDto request)
         {
             try
@@ -72,7 +71,7 @@ namespace Service_TechCompass.Services
                 {
                     UserId = newUserId,
                     Email = request.Email,
-                    // Hash mật khẩu trước khi lưu (Bạn có thể dùng BCrypt)
+                    // Hash mật khẩu trước khi lưu
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
                     RoleId = request.RoleId,
                     IsActive = request.IsActive,
@@ -83,7 +82,19 @@ namespace Service_TechCompass.Services
                 await _context.Users.AddAsync(newUser);
 
                 // B. Rẽ nhánh tạo dữ liệu cho bảng con tùy theo Role
-                if (request.RoleId == 3) // Tạo MENTOR
+                if (request.RoleId == 2) // BỔ SUNG: Tạo STUDENT
+                {
+                    var newStudent = new Student
+                    {
+                        StudentId = Guid.NewGuid(),
+                        UserId = newUserId,
+                        FullName = request.FullName,
+                        UpdatedAt = DateTime.UtcNow,
+                        StudentCode = "SE" + new Random().Next(100000, 999999).ToString()
+                    };
+                    await _context.Students.AddAsync(newStudent);
+                }
+                else if (request.RoleId == 3) // Tạo MENTOR
                 {
                     var newMentor = new Mentor
                     {
@@ -107,6 +118,7 @@ namespace Service_TechCompass.Services
                     };
                     await _context.Counselors.AddAsync(newCounselor);
                 }
+                // (Role 1 - Admin thì chỉ cần tạo bản ghi User là đủ)
 
                 // C. Lưu tất cả vào Database cùng một lúc
                 await _context.SaveChangesAsync();

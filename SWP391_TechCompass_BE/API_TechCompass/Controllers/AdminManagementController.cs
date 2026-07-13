@@ -82,8 +82,8 @@ namespace API_TechCompass.Controllers
             return StatusCode(res.StatusCode, new { message = res.Message, data = res.Data });
         }
 
-        // ĐƯỜNG DẪN ĐÃ SỬA: POST api/admin/users/create
-        [HttpPost("users/create")]
+        // ĐÃ SỬA: Chuẩn RESTful cho phương thức tạo mới
+        [HttpPost("users")]
         public async Task<IActionResult> CreateUser([FromBody] AdminCreateUserDto request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
