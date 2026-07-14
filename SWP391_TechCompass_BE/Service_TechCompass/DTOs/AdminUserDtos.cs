@@ -12,9 +12,15 @@ namespace Service_TechCompass.DTOs
         public bool IsActive { get; set; }
         public int RoleId { get; set; }
         public DateTime? CreatedAt { get; set; }
+
+        public string? FullName { get; set; }
+        public string? StudentCode { get; set; }
+        public string? CurrentCompany { get; set; }
+        public string? ExpertiseTags { get; set; }
+        public string? Department { get; set; }
     }
 
-    // 2. DTO ĐÃ GỘP dùng cho chức năng Tạo mới (Gồm cả Admin, Student, Mentor, Counselor)
+    // 2. DTO dùng cho chức năng Tạo mới (Gồm cả Admin, Student, Mentor, Counselor)
     public class AdminCreateUserDto
     {
         [Required(ErrorMessage = "Email là bắt buộc")]
@@ -33,10 +39,9 @@ namespace Service_TechCompass.DTOs
 
         public bool IsActive { get; set; } = true;
 
-        // --- Các trường tùy chọn (Tùy thuộc vào Role) ---
-        public string? CurrentCompany { get; set; } // Dành cho Mentor
-        public string? ExpertiseTags { get; set; }  // Dành cho Mentor
-        public string? Department { get; set; }     // Dành cho Counselor
+        public string? CurrentCompany { get; set; }
+        public string? ExpertiseTags { get; set; }
+        public string? Department { get; set; }
     }
 
     // 3. DTO dùng cho chức năng Cập nhật (Sửa)
@@ -45,5 +50,11 @@ namespace Service_TechCompass.DTOs
         [Required]
         public int RoleId { get; set; }
         public bool IsActive { get; set; }
+
+        public string? FullName { get; set; }
+        public string? StudentCode { get; set; }
+        public string? CurrentCompany { get; set; }
+        public string? ExpertiseTags { get; set; }
+        public string? Department { get; set; }
     }
 }

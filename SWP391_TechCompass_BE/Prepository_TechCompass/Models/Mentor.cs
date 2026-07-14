@@ -10,7 +10,7 @@ namespace Repository_TechCompass.Models
 
         public Guid UserId { get; set; }
 
-        [NotMapped]
+        // ĐÃ XÓA [NotMapped] Ở ĐÂY
         public string? FullName { get; set; }
 
         public string? CurrentCompany { get; set; }

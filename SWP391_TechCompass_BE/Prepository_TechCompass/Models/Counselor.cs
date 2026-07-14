@@ -1,4 +1,4 @@
-﻿// src/Repository_TechCompass/Models/Counselor.cs
+﻿
 using System;
 
 namespace Repository_TechCompass.Models
@@ -14,3 +14,5 @@ namespace Repository_TechCompass.Models
         public virtual User User { get; set; } = null!;
     }
 }
+
+

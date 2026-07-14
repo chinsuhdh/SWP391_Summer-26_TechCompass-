@@ -1,152 +1,212 @@
-﻿    using Microsoft.EntityFrameworkCore;
-    using Repository_TechCompass;
-    using Repository_TechCompass.Models;
-    using Service_TechCompass.DTOs;
-    using Service_TechCompass.Interfaces;
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Threading.Tasks;
+﻿using Microsoft.EntityFrameworkCore;
+using Repository_TechCompass;
+using Repository_TechCompass.Models;
+using Service_TechCompass.DTOs;
+using Service_TechCompass.Interfaces;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
-    namespace Service_TechCompass.Services
+namespace Service_TechCompass.Services
+{
+    public class AdminUserService : IAdminUserService
     {
-        public class AdminUserService : IAdminUserService
+        private readonly Swp391CareerRoadmapContext _context;
+
+        public AdminUserService(Swp391CareerRoadmapContext context)
         {
-            private readonly Swp391CareerRoadmapContext _context;
+            _context = context;
+        }
 
-            public AdminUserService(Swp391CareerRoadmapContext context)
+        // 1. LẤY DANH SÁCH NGƯỜI DÙNG
+        public async Task<(int StatusCode, string Message, List<AdminUserDetailDto>? Data)> GetAllUsersAsync()
+        {
+            var users = await _context.Users.Select(u => new AdminUserDetailDto
             {
-                _context = context;
+                UserId = u.UserId,
+                Email = u.Email ?? "",
+                Provider = u.Provider ?? "Local",
+                IsActive = u.IsActive ?? true,
+                RoleId = u.RoleId,
+                CreatedAt = u.CreatedAt
+            }).ToListAsync();
+
+            return (200, "Lấy danh sách thành công", users);
+        }
+
+        // 2. LẤY CHI TIẾT NGƯỜI DÙNG THEO ID
+        public async Task<(int StatusCode, string Message, AdminUserDetailDto? Data)> GetUserByIdAsync(Guid userId)
+        {
+            var u = await _context.Users.FindAsync(userId);
+            if (u == null) return (404, "Không tìm thấy người dùng", null);
+
+            var data = new AdminUserDetailDto
+            {
+                UserId = u.UserId,
+                Email = u.Email ?? "",
+                Provider = u.Provider ?? "Local",
+                IsActive = u.IsActive ?? true,
+                RoleId = u.RoleId,
+                CreatedAt = u.CreatedAt
+            };
+
+            // Lấy thêm thông tin chi tiết từ bảng con tùy theo Role
+            if (u.RoleId == 2) // Student
+            {
+                var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
+                if (student != null)
+                {
+                    data.FullName = student.FullName;
+                    data.StudentCode = student.StudentCode;
+                }
+            }
+            else if (u.RoleId == 3) // Mentor
+            {
+                var mentor = await _context.Mentors.FirstOrDefaultAsync(m => m.UserId == userId);
+                if (mentor != null)
+                {
+                    data.FullName = mentor.FullName;
+                    data.CurrentCompany = mentor.CurrentCompany;
+                    data.ExpertiseTags = mentor.ExpertiseTags;
+                }
+            }
+            else if (u.RoleId == 4) // Counselor
+            {
+                var counselor = await _context.Counselors.FirstOrDefaultAsync(c => c.UserId == userId);
+                if (counselor != null)
+                {
+                    data.FullName = counselor.FullName;
+                    data.Department = counselor.Department;
+                }
             }
 
-            // 1. LẤY DANH SÁCH NGƯỜI DÙNG
-            public async Task<(int StatusCode, string Message, List<AdminUserDetailDto>? Data)> GetAllUsersAsync()
+            return (200, "Thành công", data);
+        }
+
+        // 3. TẠO NGƯỜI DÙNG MỚI
+        public async Task<(int StatusCode, string Message)> CreateUserAsync(AdminCreateUserDto request)
+        {
+            try
             {
-                var users = await _context.Users.Select(u => new AdminUserDetailDto
+                if (await _context.Users.AnyAsync(u => u.Email == request.Email))
                 {
-                    UserId = u.UserId,
-                    Email = u.Email ?? "",
-                    Provider = u.Provider ?? "Local",
-                    IsActive = u.IsActive ?? true,
-                    RoleId = u.RoleId,
-                    CreatedAt = u.CreatedAt
-                }).ToListAsync();
+                    return (400, "Email này đã tồn tại trong hệ thống.");
+                }
 
-                return (200, "Lấy danh sách thành công", users);
-            }
-
-            // 2. LẤY CHI TIẾT NGƯỜI DÙNG THEO ID
-            public async Task<(int StatusCode, string Message, AdminUserDetailDto? Data)> GetUserByIdAsync(Guid userId)
-            {
-                var u = await _context.Users.FindAsync(userId);
-                if (u == null) return (404, "Không tìm thấy người dùng", null);
-
-                var data = new AdminUserDetailDto
+                var newUserId = Guid.NewGuid();
+                var newUser = new User
                 {
-                    UserId = u.UserId,
-                    Email = u.Email ?? "",
-                    Provider = u.Provider ?? "Local",
-                    IsActive = u.IsActive ?? true,
-                    RoleId = u.RoleId,
-                    CreatedAt = u.CreatedAt
+                    UserId = newUserId,
+                    Email = request.Email,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                    RoleId = request.RoleId,
+                    IsActive = request.IsActive,
+                    CreatedAt = DateTime.UtcNow,
+                    Provider = "Local"
                 };
 
-                return (200, "Thành công", data);
-            }
+                await _context.Users.AddAsync(newUser);
 
-            // 3. TẠO NGƯỜI DÙNG MỚI (GỘP CHUNG TẤT CẢ ROLE)
-            public async Task<(int StatusCode, string Message)> CreateUserAsync(AdminCreateUserDto request)
-            {
-                try
+                if (request.RoleId == 2) // STUDENT
                 {
-                    // Kiểm tra Email đã tồn tại chưa
-                    if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+                    var newStudent = new Student
                     {
-                        return (400, "Email này đã tồn tại trong hệ thống.");
-                    }
-
-                    // A. Luôn luôn tạo User ở bảng cha (Users) trước
-                    var newUserId = Guid.NewGuid();
-                    var newUser = new User
-                    {
+                        StudentId = Guid.NewGuid(),
                         UserId = newUserId,
-                        Email = request.Email,
-                        // Hash mật khẩu trước khi lưu
-                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
-
-                        RoleId = request.RoleId,
-                        IsActive = request.IsActive,
-                        CreatedAt = DateTime.UtcNow,
-                        Provider = "Local"
+                        FullName = request.FullName,
+                        UpdatedAt = DateTime.UtcNow,
+                        StudentCode = "SE" + new Random().Next(100000, 999999).ToString()
                     };
-
-                    await _context.Users.AddAsync(newUser);
-
-                    // B. Rẽ nhánh tạo dữ liệu cho bảng con tùy theo Role
-                    if (request.RoleId == 2) // BỔ SUNG: Tạo STUDENT
-                    {
-                        var newStudent = new Student
-                        {
-                            StudentId = Guid.NewGuid(),
-                            UserId = newUserId,
-                            FullName = request.FullName,
-                            UpdatedAt = DateTime.UtcNow,
-                            StudentCode = "SE" + new Random().Next(100000, 999999).ToString()
-                        };
-                        await _context.Students.AddAsync(newStudent);
-                    }
-                    else if (request.RoleId == 3) // Tạo MENTOR
-                    {
-                        var newMentor = new Mentor
-                        {
-                            MentorId = Guid.NewGuid(),
-                            UserId = newUserId,
-                            FullName = request.FullName,
-                            CurrentCompany = request.CurrentCompany,
-                            ExpertiseTags = request.ExpertiseTags
-                        };
-                        await _context.Mentors.AddAsync(newMentor);
-                    }
-                    else if (request.RoleId == 4) // Tạo COUNSELOR
-                    {
-                        var newCounselor = new Counselor
-                        {
-                            CounselorId = Guid.NewGuid(),
-                            UserId = newUserId,
-                            FullName = request.FullName,
-                            Department = request.Department,
-                            UpdatedAt = DateTime.UtcNow
-                        };
-                        await _context.Counselors.AddAsync(newCounselor);
-                    }
-                    // (Role 1 - Admin thì chỉ cần tạo bản ghi User là đủ)
-
-                    // C. Lưu tất cả vào Database cùng một lúc
-                    await _context.SaveChangesAsync();
-                    return (201, "Tạo người dùng thành công!");
+                    await _context.Students.AddAsync(newStudent);
                 }
-                catch (Exception ex)
+                else if (request.RoleId == 3) // MENTOR
                 {
-                    return (500, $"Lỗi server: {ex.Message}");
+                    var newMentor = new Mentor
+                    {
+                        MentorId = Guid.NewGuid(),
+                        UserId = newUserId,
+                        FullName = request.FullName,
+                        CurrentCompany = request.CurrentCompany,
+                        ExpertiseTags = request.ExpertiseTags
+                    };
+                    await _context.Mentors.AddAsync(newMentor);
+                }
+                else if (request.RoleId == 4) // COUNSELOR
+                {
+                    var newCounselor = new Counselor
+                    {
+                        CounselorId = Guid.NewGuid(),
+                        UserId = newUserId,
+                        FullName = request.FullName,
+                        Department = request.Department,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    await _context.Counselors.AddAsync(newCounselor);
+                }
+
+                await _context.SaveChangesAsync();
+                return (201, "Tạo người dùng thành công!");
+            }
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi server: {ex.Message}");
+            }
+        }
+
+        // 4. CẬP NHẬT NGƯỜI DÙNG
+        public async Task<(int StatusCode, string Message)> UpdateUserAsync(Guid userId, AdminUpdateUserDto request)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) return (404, "Không tìm thấy người dùng");
+
+            if (user.RoleId != request.RoleId)
+            {
+                return (400, "Không hỗ trợ đổi Role của người dùng trực tiếp. Vui lòng tạo tài khoản mới nếu muốn đổi chức vụ.");
+            }
+
+            user.IsActive = request.IsActive;
+            _context.Users.Update(user);
+
+            if (user.RoleId == 2) // Student
+            {
+                var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
+                if (student != null)
+                {
+                    student.FullName = request.FullName ?? student.FullName;
+                    student.StudentCode = request.StudentCode ?? student.StudentCode;
+                    student.UpdatedAt = DateTime.UtcNow;
+                    _context.Students.Update(student);
+                }
+            }
+            else if (user.RoleId == 3) // Mentor
+            {
+                var mentor = await _context.Mentors.FirstOrDefaultAsync(m => m.UserId == userId);
+                if (mentor != null)
+                {
+                    // ĐÃ MỞ KHÓA GÁN FULLNAME CHO MENTOR
+                    mentor.FullName = request.FullName ?? mentor.FullName;
+                    mentor.CurrentCompany = request.CurrentCompany ?? mentor.CurrentCompany;
+                    mentor.ExpertiseTags = request.ExpertiseTags ?? mentor.ExpertiseTags;
+                    _context.Mentors.Update(mentor);
+                }
+            }
+            else if (user.RoleId == 4) // Counselor
+            {
+                var counselor = await _context.Counselors.FirstOrDefaultAsync(c => c.UserId == userId);
+                if (counselor != null)
+                {
+                    counselor.FullName = request.FullName ?? counselor.FullName;
+                    counselor.Department = request.Department ?? counselor.Department;
+                    counselor.UpdatedAt = DateTime.UtcNow;
+                    _context.Counselors.Update(counselor);
                 }
             }
 
-            // 4. CẬP NHẬT NGƯỜI DÙNG
-            public async Task<(int StatusCode, string Message)> UpdateUserAsync(Guid userId, AdminUpdateUserDto request)
-            {
-                var user = await _context.Users.FindAsync(userId);
-                if (user == null) return (404, "Không tìm thấy người dùng");
+            await _context.SaveChangesAsync();
+            return (200, "Cập nhật toàn diện thông tin người dùng thành công");
+        }
 
-                user.RoleId = request.RoleId;
-                user.IsActive = request.IsActive;
-
-                _context.Users.Update(user);
-                await _context.SaveChangesAsync();
-
-                return (200, "Cập nhật thành công");
-            }
-
-        // 5. XÓA NGƯỜI DÙNG
         // 5. XÓA NGƯỜI DÙNG
         public async Task<(int StatusCode, string Message)> DeleteUserAsync(Guid userId)
         {
@@ -155,7 +215,6 @@
                 var user = await _context.Users.FindAsync(userId);
                 if (user == null) return (404, "Không tìm thấy người dùng");
 
-                // 1. TÌM VÀ XÓA DỮ LIỆU Ở CÁC BẢNG CON TRƯỚC (NẾU CÓ)
                 var studentRecord = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
                 if (studentRecord != null) _context.Students.Remove(studentRecord);
 
@@ -165,10 +224,8 @@
                 var counselorRecord = await _context.Counselors.FirstOrDefaultAsync(c => c.UserId == userId);
                 if (counselorRecord != null) _context.Counselors.Remove(counselorRecord);
 
-                // Lưu thay đổi xóa bảng con
                 await _context.SaveChangesAsync();
 
-                // 2. SAU ĐÓ MỚI XÓA BẢNG CHA (USERS)
                 _context.Users.Remove(user);
                 await _context.SaveChangesAsync();
 
@@ -176,9 +233,8 @@
             }
             catch (Exception ex)
             {
-                // Bọc Try-Catch để nếu có lỗi, Frontend sẽ nhận được tin báo chi tiết thay vì sập ngầm
                 return (500, $"Lỗi hệ thống khi xóa: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
     }
-    }
+}
