@@ -115,5 +115,14 @@ namespace API_TechCompass.Controllers
 
             return Ok(new { message = res.Message });
         }
+
+        // Thêm vào API_TechCompass.Controllers.AdminContentController
+
+        [HttpGet("tech-paths")]
+        public async Task<IActionResult> GetAllTechPaths()
+        {
+            var res = await _contentService.GetAllTechPathsAsync();
+            return StatusCode(res.StatusCode, new { message = res.Message, data = res.Data });
+        }
     }
 }

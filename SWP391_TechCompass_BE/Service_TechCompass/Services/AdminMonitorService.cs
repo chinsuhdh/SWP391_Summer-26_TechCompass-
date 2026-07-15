@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Service_TechCompass/Services/AdminMonitorService.cs
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -6,7 +7,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Caching.Memory; // Thêm thư viện Cache
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Repository_TechCompass;
@@ -22,20 +23,19 @@ namespace Service_TechCompass.Services
         private readonly Swp391CareerRoadmapContext _context;
         private readonly IConfiguration _config;
         private readonly IChatCompletionService _geminiService;
-        private readonly IMemoryCache _cache; // Inject IMemoryCache
+        private readonly IMemoryCache _cache;
 
         public AdminMonitorService(
             IUserRepository userRepo,
             Swp391CareerRoadmapContext context,
             IConfiguration config,
             Kernel kernel,
-            IMemoryCache cache) // Bổ sung vào Constructor
+            IMemoryCache cache)
         {
             _userRepo = userRepo;
             _context = context;
             _config = config;
             _cache = cache;
-
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
@@ -61,12 +61,19 @@ namespace Service_TechCompass.Services
                 .Select(x => new SystemLogDto
                 {
                     LogId = x.HistoryId,
+                    // Phân loại LogLevel để React tô màu (Xanh/Đỏ/Vàng)
                     LogLevel = x.ActionType.Contains("ERROR") || x.ActionType.Contains("FAIL") ? "ERROR"
-                             : x.ActionType.Contains("SYSTEM_JOB") || x.ActionType.Contains("AI_REPO") ? "WARNING"
+                             : x.ActionType.Contains("SYSTEM_JOB") || x.ActionType.Contains("AI_REPO") ? "INFO"
                              : "INFO",
-                    Message = $"Tiến trình {x.ActionType} đã thực thi." +
-                              (x.DurationSeconds > 0 ? $" (Mất {x.DurationSeconds} giây)" : ""),
-                    CreatedAt = x.RecordedAt ?? DateTime.Now
+
+                    // Message gốc (sẽ bị React ghi đè bằng message tiếng Việt đẹp hơn dựa vào ActionType)
+                    Message = $"Tiến trình {x.ActionType} đã thực thi.",
+                    CreatedAt = x.RecordedAt ?? DateTime.Now,
+
+                    // Bổ sung 3 trường mới để UI hiển thị số lượng và ngày giờ thật
+                    ActionType = x.ActionType,
+                    DurationSeconds = x.DurationSeconds,
+                    RecordedAt = x.RecordedAt
                 })
                 .ToListAsync();
 
@@ -112,21 +119,16 @@ namespace Service_TechCompass.Services
 
         public async Task<(int StatusCode, string Message, object? Data)> GetAiSummaryAsync()
         {
-            // 1. Lấy ngày dữ liệu Market Trend mới nhất từ DB
             var latestDate = await _context.TrendAnalyses.MaxAsync(t => (DateOnly?)t.AnalyzedDate);
             if (latestDate == null) return (404, "Chưa có dữ liệu Trend để AI phân tích.", null);
 
-            // 2. KIỂM TRA CACHE TRƯỚC
-            // Đặt tên Key theo ngày. VD: AiMarketSummary_20260711
             string cacheKey = $"AiMarketSummary_{latestDate.Value:yyyyMMdd}";
 
             if (_cache.TryGetValue(cacheKey, out string? cachedSummary))
             {
-                // Nếu đã có trong RAM, trả về luôn không gọi Google Gemini
                 return (200, "Lấy tóm tắt AI từ Cache thành công.", new { summary = cachedSummary });
             }
 
-            // 3. Nếu chưa có Cache, tiến hành tổng hợp dữ liệu
             var topTrends = await _context.TrendAnalyses
                 .Where(t => t.AnalyzedDate == latestDate)
                 .Join(_context.SkillNodes, t => t.SkillNodeId, n => n.SkillNodeId, (t, n) => new { n.NodeName, t.TrendScore })
@@ -151,7 +153,6 @@ namespace Service_TechCompass.Services
                     return (500, "AI không trả về nội dung tóm tắt.", null);
                 }
 
-                // 4. LƯU VÀO CACHE TRONG 24 GIỜ
                 _cache.Set(cacheKey, aiResponseText, TimeSpan.FromHours(24));
             }
             catch (Exception ex)

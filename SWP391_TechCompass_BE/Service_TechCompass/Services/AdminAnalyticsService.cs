@@ -103,14 +103,21 @@ namespace Service_TechCompass.Services
             return new { Status = "Success", Data = recentActivities };
         }
 
-        // 3. Student Stats
         public async Task<object> GetStudentStatsAsync()
         {
+            var today = DateTime.Now.Date;
+
+            // Đếm trực tiếp từ bảng JobPostings (Bảng lưu tin tuyển dụng)
+            var jobsToday = await _context.JobPostings
+    .Where(j => j.ScrapedAt != null && j.ScrapedAt.Value.Date == today) // Truy cập qua .Value
+    .CountAsync();
+
             return new
             {
                 Status = "Success",
                 TotalStudents = await _context.Students.CountAsync(),
                 TotalJobsScraped = await _context.JobPostings.CountAsync(),
+                JobsToday = jobsToday, // React sẽ nhận biến này
                 LastScraped = await _context.JobPostings.MaxAsync(j => (DateTime?)j.ScrapedAt)
             };
         }

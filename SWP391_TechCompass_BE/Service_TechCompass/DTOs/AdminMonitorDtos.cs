@@ -17,5 +17,9 @@ namespace Service_TechCompass.DTOs
         public string LogLevel { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
+
+        public string ActionType { get; set; }
+        public int? DurationSeconds { get; set; }
+        public DateTime? RecordedAt { get; set; }
     }
 }
