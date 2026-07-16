@@ -253,15 +253,17 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
                     return (404, "Không tìm thấy hồ sơ sinh viên.", null);
 
                 var feedbacks = await _context.MentorSessions
-                    .Include(ms => ms.Mentor)
-                        .ThenInclude(m => m.User)
+                    // ĐÃ BỎ: .Include(ms => ms.Mentor) và .ThenInclude(m => m.User)
                     .Where(ms => ms.StudentId == student.StudentId && ms.Status == "Completed" && ms.ReviewNotes != null)
                     .OrderByDescending(ms => ms.ScheduledAt)
                     .Select(ms => new StudentFeedbackDto
                     {
                         SessionId = ms.SessionId,
-                        MentorName = ms.Mentor.FullName ?? "Chuyên gia ẩn danh",
-                        MentorCompany = ms.Mentor.CurrentCompany ?? "Tech Industry",
+                        // Thêm check null an toàn để EF Core tự động dịch thành LEFT JOIN
+                        MentorName = ms.Mentor != null && ms.Mentor.FullName != null
+                                     ? ms.Mentor.FullName : "Chuyên gia ẩn danh",
+                        MentorCompany = ms.Mentor != null && ms.Mentor.CurrentCompany != null
+                                     ? ms.Mentor.CurrentCompany : "Tech Industry",
                         ReviewNotes = ms.ReviewNotes,
                         ScheduledAt = ms.ScheduledAt
                     })
@@ -271,6 +273,7 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
             }
             catch (Exception ex)
             {
+                // Exception sẽ được bắt ở đây và trả về cho Controller
                 return (500, $"Lỗi hệ thống: {ex.Message}", null);
             }
         }

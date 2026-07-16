@@ -295,19 +295,29 @@ public partial class Swp391CareerRoadmapContext : DbContext
             entity.HasKey(e => e.MentorId).HasName("PK__mentors__E5D27EF3317BF9C8");
             entity.ToTable("mentors");
             entity.HasIndex(e => e.UserId, "UQ__mentors__B9BE370E28E8D3C1").IsUnique();
+
             entity.Property(e => e.MentorId)
                 .ValueGeneratedNever()
                 .HasColumnName("mentor_id");
+
+            // THÊM ĐOẠN NÀY ĐỂ MAP VỚI CỘT DƯỚI SQL SERVER
+            entity.Property(e => e.FullName)
+                .HasMaxLength(100)
+                .HasColumnName("full_name");
+
             entity.Property(e => e.CurrentCompany)
                 .HasMaxLength(150)
                 .HasColumnName("current_company");
+
             entity.Property(e => e.ExpertiseTags)
                 .HasMaxLength(255)
                 .HasColumnName("expertise_tags");
+
             entity.Property(e => e.LinkedinUrl)
                 .HasMaxLength(255)
                 .IsUnicode(false)
                 .HasColumnName("linkedin_url");
+
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
             entity.HasOne(d => d.User).WithOne(p => p.Mentor)

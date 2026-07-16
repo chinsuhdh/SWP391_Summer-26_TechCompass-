@@ -12,10 +12,12 @@ namespace API_TechCompass.Controllers
     public class CounselorController : ControllerBase
     {
         private readonly ICounselorService _counselorService;
+        private readonly IPortfolioService _portfolioService; // 1. Thêm dòng này
 
-        public CounselorController(ICounselorService counselorService)
+        public CounselorController(ICounselorService counselorService, IPortfolioService portfolioService)
         {
             _counselorService = counselorService;
+            _portfolioService = portfolioService;
         }
 
         [HttpGet("dashboard/student-stats")]
@@ -102,6 +104,31 @@ namespace API_TechCompass.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Lỗi phân tích Market Alignment.", error = ex.Message });
+            }
+        }
+        // <summary>
+        /// Lấy chi tiết hồ sơ (Portfolio) của sinh viên dành cho Counselor (Read-only)
+        /// API: GET /api/counselors/students/{studentId}/portfolio
+        /// </summary>
+        [HttpGet("students/{studentId}/portfolio")]
+        public async Task<IActionResult> GetStudentDetailForCounselor(Guid studentId)
+        {
+            try
+            {
+                // Sử dụng PortfolioService để lấy toàn bộ dữ liệu phân tích AI, Github, Kỹ năng...
+                var portfolio = await _portfolioService.GetPortfolioAsync(studentId);
+
+                if (portfolio == null)
+                {
+                    return NotFound(new { message = "Không tìm thấy hồ sơ của sinh viên này hoặc sinh viên chưa đồng bộ dữ liệu." });
+                }
+
+                // Trả về dữ liệu gốc, đảm bảo phía Counselor chỉ được ĐỌC
+                return Ok(portfolio);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi tải chi tiết hồ sơ.", error = ex.Message });
             }
         }
     }
