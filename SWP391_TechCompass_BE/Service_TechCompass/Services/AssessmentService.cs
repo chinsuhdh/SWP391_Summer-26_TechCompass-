@@ -184,6 +184,7 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             string lowerNodeName = node.NodeName.ToLower();
 
             // TỐI ƯU THUẬT TOÁN ĐOÁN NGÔN NGỮ TỪ TÊN KỸ NĂNG
+            // TỐI ƯU THUẬT TOÁN ĐOÁN NGÔN NGỮ TỪ TÊN KỸ NĂNG
             if (lowerNodeName.Contains("sql") || lowerNodeName.Contains("database"))
             {
                 targetLanguage = "SQL";
@@ -197,28 +198,31 @@ Cấu trúc mảng JSON bắt buộc phải giống hệt như sau:
             else if (lowerNodeName.Contains("html") || lowerNodeName.Contains("css") || lowerNodeName.Contains("javascript") || lowerNodeName.Contains("dom") || lowerNodeName.Contains("react") || lowerNodeName.Contains("hooks") || lowerNodeName.Contains("node"))
             {
                 targetLanguage = "JavaScript (Node.js)";
-                defaultTemplate = "// Viết mã JavaScript của bạn dưới đây\n// Hàm console.log() sẽ in kết quả ra màn hình\n\nfunction solve() {\n\n}\n\nsolve();";
+                defaultTemplate = "// Viết mã JavaScript của bạn dưới đây\nfunction solve() {\n\n}\n\nsolve();";
             }
             else if (lowerNodeName.Contains("python") || lowerNodeName.Contains("data"))
             {
                 targetLanguage = "Python";
-                defaultTemplate = "def solve():\n    # Viết mã Python của bạn tại đây\n    pass\n\nif __name__ == '__main__':\n    solve()";
+                defaultTemplate = "def solve():\n    pass\n\nif __name__ == '__main__':\n    solve()";
             }
             else if (lowerNodeName.Contains("java") && !lowerNodeName.Contains("javascript"))
             {
                 targetLanguage = "Java";
-                defaultTemplate = "import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        // Viết mã Java của bạn tại đây\n    }\n}";
+                defaultTemplate = "import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n    }\n}";
             }
             else if (lowerNodeName.Contains("c++") || lowerNodeName.Contains("cpp"))
             {
                 targetLanguage = "C++";
-                defaultTemplate = "#include <iostream>\nusing namespace std;\n\nint main() {\n    // Viết code C++ của bạn tại đây\n    return 0;\n}";
+                defaultTemplate = "#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}";
             }
-            else if (lowerNodeName.Contains("c#") || lowerNodeName.Contains("csharp") || lowerNodeName.Contains("net") || lowerNodeName.Contains("oop") || lowerNodeName.Contains("linq"))
+            // Nếu không khớp với bất kỳ ngôn ngữ nào cụ thể, fallback về C# làm mặc định cho hệ thống
+            else
             {
                 targetLanguage = "C#";
                 defaultTemplate = "using System;\n\npublic class Solution {\n    public static void Main() {\n        // Viết code của bạn tại đây\n    }\n}";
             }
+
+            // KHÔNG THROW EXCEPTION NỮA VÌ ĐÃ CÓ FALLBACK
 
             // NẾU TÊN NODE KHÔNG THUỘC NGÔN NGỮ NÀO -> BÁO LỖI (CHẶN GỌI AI)
             if (string.IsNullOrEmpty(targetLanguage))
@@ -591,12 +595,18 @@ Chỉ trả về nội dung nhận xét.";
         public async Task<CodingExercise> GetComprehensiveCodingExerciseByRoleAsync(int roleId)
         {
             var nodes = await _repository.GetSkillNodesByRoleIdAsync(roleId);
-            if (nodes == null || !nodes.Any()) throw new Exception("Chưa có kỹ năng nào được cấu hình.");
+            if (nodes == null || !nodes.Any())
+                throw new Exception("Chưa có kỹ năng nào được cấu hình.");
 
             var codingNodes = nodes.Where(n => n.IsCodingRequired == true).ToList();
-            var targetNode = codingNodes.OrderBy(x => Guid.NewGuid()).FirstOrDefault() ?? nodes.First();
 
-            // CHÚ Ý CHỖ NÀY: Truyền forceGenerate: true
+            // NẾU KHÔNG CÓ NODE NÀO YÊU CẦU CODE, THÔNG BÁO RÕ RÀNG TRÁNH LẤY LỘN NODE LÝ THUYẾT
+            if (!codingNodes.Any())
+                throw new Exception("Ngành nghề này hiện tại không có kỹ năng nào yêu cầu bài test thực hành Code.");
+
+            var targetNode = codingNodes.OrderBy(x => Guid.NewGuid()).FirstOrDefault();
+
+            // Truyền forceGenerate: true
             return await GetOrGenerateCodingExerciseAsync(targetNode.SkillNodeId, forceGenerate: true);
         }
 

@@ -40,16 +40,28 @@ namespace Service_TechCompass.Services
             string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
             string apiUrl = "https://api.jdoodle.com/v1/execute";
 
+            // MỞ RỘNG ĐỂ HỖ TRỢ SQL, BASH, CPP THEO ĐÚNG ĐỊNH DANH CỦA JDOODLE
             string jLanguage = request.Language.ToLower() switch
             {
                 "csharp" => "csharp",
                 "javascript" => "nodejs",
                 "python" => "python3",
                 "java" => "java",
+                "sql" => "sql",       // Thêm hỗ trợ SQL Compiler
+                "bash" => "bash",     // Thêm hỗ trợ Bash Script
+                "cpp" => "cpp14",     // Thêm hỗ trợ C++ (g++ 14)
                 _ => "csharp"
             };
 
-            string jVersion = jLanguage == "csharp" ? "4" : "0";
+            // Thiết lập version Index phù hợp với cấu hình của từng môi trường JDoodle
+            string jVersion = jLanguage switch
+            {
+                "csharp" => "4",
+                "sql" => "0",         // SQL thường dùng versionIndex = 0
+                "bash" => "0",        // Bash dùng versionIndex = 0
+                "cpp14" => "4",       // C++14 dùng versionIndex = 4
+                _ => "0"
+            };
 
             var jdoodleReq = new
             {
@@ -79,8 +91,18 @@ namespace Service_TechCompass.Services
                     return new RunCodeResponseDto { Output = "JDoodle API Error: " + errorEl.GetString(), IsError = true };
                 }
 
-                string output = root.TryGetProperty("output", out var outputEl) ? outputEl.GetString() : "Không có output";
-                return new RunCodeResponseDto { Output = output, IsError = false };
+                // Bổ sung lấy thông tin từ 'stdout' phòng khi JDoodle trả về cấu trúc khác biệt cho một số ngôn ngữ script
+                string output = string.Empty;
+                if (root.TryGetProperty("output", out var outputEl))
+                {
+                    output = outputEl.GetString() ?? "";
+                }
+                else if (root.TryGetProperty("stdout", out var stdoutEl))
+                {
+                    output = stdoutEl.GetString() ?? "";
+                }
+
+                return new RunCodeResponseDto { Output = string.IsNullOrEmpty(output) ? "Không có output (Chạy thành công)." : output, IsError = false };
             }
             catch (Exception ex)
             {
