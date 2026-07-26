@@ -63,13 +63,11 @@ namespace Service_TechCompass.Services
                     .ToListAsync()
                 : null;
 
-            // Bước 4: Đối chiếu và ghép data trên RAM bằng C# (Tuyệt đối an toàn, không lo lỗi EF Core)
+            // Bước 4: Đối chiếu và ghép data trên RAM bằng C#
             var result = topToday.Select(today =>
             {
-                // Tìm tất cả các dòng của hôm qua có cùng Tên
                 var yesterdayData = yesterdayRaw?.Where(y => y.SkillName == today.SkillName).ToList();
 
-                // Trích xuất điểm (Nếu không có lấy mặc định là 0)
                 var scoreYesterday = (yesterdayData != null && yesterdayData.Any())
                                         ? yesterdayData.Max(y => y.Score)
                                         : 0;
@@ -85,18 +83,23 @@ namespace Service_TechCompass.Services
             return new { Status = "Success", Data = result };
         }
 
-        // 2. Student Activity
+        // =========================================================
+        // [BUG-012 FIX]: LOẠI BỎ SUB-QUERY TRONG SELECT (TRIỆT CẢNH N+1)
+        // =========================================================
         public async Task<object> GetStudentActivityAsync()
         {
             var recentActivities = await _context.LearningHistories
+                .Include(h => h.Progress)
+                    .ThenInclude(p => p.Student) // Explicit Eager Loading thông qua Relationship
                 .OrderByDescending(h => h.RecordedAt)
                 .Take(10)
-                .Select(h => new {
+                .Select(h => new
+                {
                     h.ActionType,
                     h.RecordedAt,
-                    StudentName = _context.Students
-                        .FirstOrDefault(s => s.RoadmapProgresses.Any(p => p.ProgressId == h.ProgressId))
-                        .FullName
+                    StudentName = h.Progress != null && h.Progress.Student != null
+                        ? h.Progress.Student.FullName
+                        : "Hệ thống"
                 })
                 .ToListAsync();
 
@@ -107,17 +110,17 @@ namespace Service_TechCompass.Services
         {
             var today = DateTime.Now.Date;
 
-            // Đếm trực tiếp từ bảng JobPostings (Bảng lưu tin tuyển dụng)
+            // Đếm trực tiếp từ bảng JobPostings
             var jobsToday = await _context.JobPostings
-    .Where(j => j.ScrapedAt != null && j.ScrapedAt.Value.Date == today) // Truy cập qua .Value
-    .CountAsync();
+                .Where(j => j.ScrapedAt != null && j.ScrapedAt.Value.Date == today)
+                .CountAsync();
 
             return new
             {
                 Status = "Success",
                 TotalStudents = await _context.Students.CountAsync(),
                 TotalJobsScraped = await _context.JobPostings.CountAsync(),
-                JobsToday = jobsToday, // React sẽ nhận biến này
+                JobsToday = jobsToday,
                 LastScraped = await _context.JobPostings.MaxAsync(j => (DateTime?)j.ScrapedAt)
             };
         }

@@ -17,13 +17,16 @@
         public double DeficiencyPercentage { get; set; } // Tỷ lệ % SV bị hụt trên tổng số SV
     }
 
-    // DTO cho danh sách sinh viên kèm tiến độ
+    // DTO cho danh sách sinh viên kèm tiến độ (ĐÃ BỔ SUNG CÁC TRƯỜNG CÒN THIẾU)
     public class CounselorStudentDto
     {
         public Guid StudentId { get; set; }
         public string FullName { get; set; } = string.Empty;
+        public string StudentCode { get; set; } = string.Empty; // <-- BỔ SUNG
+        public string Email { get; set; } = string.Empty;       // <-- BỔ SUNG
         public string TargetRoleName { get; set; } = string.Empty;
         public double ProgressPercentage { get; set; }
+        public string AiScore { get; set; } = "N/A";            // <-- BỔ SUNG
     }
 
     // DTO cho thống kê bài Assessment

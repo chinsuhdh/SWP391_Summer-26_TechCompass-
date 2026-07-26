@@ -37,21 +37,34 @@ namespace Service_TechCompass.Services
             var student = _userRepo.GetStudentByUserId(userId);
             if (student == null) return (404, "Không tìm thấy hồ sơ sinh viên.", null);
 
-            // 1. Query danh sách các Node trong Roadmap của sinh viên (Logic cũ)
-            var query = from p in _context.RoadmapProgresses
-                        join n in _context.SkillNodes on p.SkillNodeId equals n.SkillNodeId
-                        where p.StudentId == student.StudentId
+            if (student.TargetRoleId == null)
+            {
+                return (200, "Sinh viên chưa chọn ngành nghề mục tiêu.", new List<SkillNodeDto>());
+            }
+
+            // 1. CHỈ LẤY TECHPATH TƯƠNG ỨNG VỚI TARGET ROLE HIỆN TẠI CỦA SINH VIÊN
+            var currentTechPath = await _context.TechPaths
+                .FirstOrDefaultAsync(tp => tp.TargetRoleId == student.TargetRoleId);
+
+            if (currentTechPath == null)
+            {
+                return (404, "Chưa cấu hình Lộ trình (TechPath) cho ngành nghề này.", null);
+            }
+
+            // 2. QUERY CHÍNH XÁC CÁC NODE THUỘC TECHPATH ĐÓ
+            var query = from n in _context.SkillNodes
+                        join p in _context.RoadmapProgresses
+                            on new { n.SkillNodeId, StudentId = student.StudentId }
+                            equals new { p.SkillNodeId, p.StudentId } into progressGroup
+                        from p in progressGroup.DefaultIfEmpty() // Left Join để lấy cả những node chưa học
+                        where n.TechPathId == currentTechPath.TechPathId
                         orderby n.PriorityLevel ascending
-                        select new { p, n };
+                        select new { n, p };
 
-            var studentNodes = await query.ToListAsync();
+            var techPathNodes = await query.ToListAsync();
 
-            // ========================================================
-            // 2. LOGIC MỚI: QUERY "NHỊP ĐẬP THỊ TRƯỜNG" TRONG 30 NGÀY QUA
-            // ========================================================
+            // 3. QUERY "NHỊP ĐẬP THỊ TRƯỜNG" TRONG 30 NGÀY QUA
             var thirtyDaysAgo = DateOnly.FromDateTime(DateTime.Now.AddDays(-30));
-
-            // Lấy điểm Trend trung bình của các Skill trong 30 ngày qua
             var recentTrends = await _context.TrendAnalyses
                 .Where(t => t.AnalyzedDate >= thirtyDaysAgo)
                 .GroupBy(t => t.SkillNodeId)
@@ -62,17 +75,14 @@ namespace Service_TechCompass.Services
                 })
                 .ToDictionaryAsync(k => k.SkillNodeId, v => v.AverageTrendScore);
 
-            // Ngưỡng để xác định một skill đang "Hot" (Ví dụ: Trend Score từ 2.5 trở lên)
             const decimal HOT_TREND_THRESHOLD = 2.5m;
-
             var skillTree = new List<SkillNodeDto>();
 
-            // 3. Map dữ liệu trả về cho Frontend
-            foreach (var item in studentNodes)
+            // 4. MAP DỮ LIỆU
+            foreach (var item in techPathNodes)
             {
                 var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, item.n.SkillNodeId);
 
-                // Kiểm tra xem kỹ năng này có đang nằm trong Top Trending không
                 decimal currentScore = recentTrends.ContainsKey(item.n.SkillNodeId)
                                         ? (recentTrends[item.n.SkillNodeId] ?? 0)
                                         : 0;
@@ -83,10 +93,9 @@ namespace Service_TechCompass.Services
                     NodeName = item.n.NodeName,
                     Description = item.n.Description,
                     ParentNodeId = item.n.ParentNodeId,
-                    IsCompleted = (item.p.Status == "Completed"),
+                    // Nếu chưa có record progress hoặc status != Completed thì IsCompleted = false
+                    IsCompleted = item.p != null && item.p.Status == "Completed",
                     IsLocked = !validation.IsValid,
-
-                    // MAP CỜ TRENDING VÀO ĐÂY CHO FRONTEND
                     IsTrending = currentScore >= HOT_TREND_THRESHOLD,
                     CurrentTrendScore = Math.Round(currentScore, 2)
                 });
@@ -95,6 +104,9 @@ namespace Service_TechCompass.Services
             return (200, "Lấy sơ đồ Roadmap thành công.", skillTree);
         }
 
+        // =========================================================
+        // [BUG-008 FIX]: BỔ SUNG ASSESSMENT GATE ĐỂ BẢO VỆ TIẾN ĐỘ
+        // =========================================================
         public async Task<(int StatusCode, string Message)> MarkNodeCompletedAsync(Guid userId, MarkNodeCompletedDto request)
         {
             var student = _userRepo.GetStudentByUserId(userId);
@@ -103,18 +115,41 @@ namespace Service_TechCompass.Services
                 return (404, "Không tìm thấy hồ sơ sinh viên.");
             }
 
-            // 1. Kiểm tra điều kiện tiên quyết (Có bị khóa không?)
+            // 1. Kiểm tra điều kiện tiên quyết (Node cha đã mở khóa chưa?)
             var validation = await _engineService.ValidatePrerequisiteAsync(student.StudentId, request.NodeId);
             if (!validation.IsValid)
             {
                 return (403, "Bạn không thể hoàn thành bài học đang bị khóa.");
             }
 
-            // 2. Tìm tiến độ hiện tại trong DB
+            // 2. Lấy thông tin Skill Node để kiểm tra loại bài test (Có bắt buộc thi Code không)
+            var node = await _context.SkillNodes.FindAsync(request.NodeId);
+            if (node == null)
+            {
+                return (404, "Kỹ năng không tồn tại trong hệ thống.");
+            }
+
+            // 3. ASSESSMENT GATE: Kiểm tra xem sinh viên đã thực sự thi đạt Node này chưa
+            bool isCodingRequired = node.IsCodingRequired ?? false;
+
+            var passedSession = await _context.AssessmentSessions
+                .AnyAsync(s => s.StudentId == student.StudentId
+                            && s.SkillNodeId == request.NodeId
+                            && (s.AssessmentType == "TESTED" || s.AssessmentType == "SELF_DECLARED")
+                            && (isCodingRequired
+                                ? (s.TotalQuizScore >= 5.0m && s.TotalCodeScore >= 5.0m)
+                                : s.TotalQuizScore >= 5.0m));
+
+            // Nếu chưa đạt bài test và không có cờ ép buộc (ForceComplete từ Admin) -> Chặn lại
+            if (!passedSession)
+            {
+                return (400, "Bạn chưa vượt qua bài kiểm tra năng lực cho kỹ năng này. Vui lòng hoàn thành bài test trước.");
+            }
+
+            // 4. Cập nhật hoặc Khởi tạo tiến độ trong Database
             var progress = await _context.RoadmapProgresses
                 .FirstOrDefaultAsync(p => p.StudentId == student.StudentId && p.SkillNodeId == request.NodeId);
 
-            // 3. LOGIC MỚI: Nếu chưa có tiến độ (chưa từng học), TỰ ĐỘNG TẠO MỚI thay vì báo lỗi 404
             if (progress == null)
             {
                 progress = new RoadmapProgress
@@ -131,7 +166,6 @@ namespace Service_TechCompass.Services
             }
             else
             {
-                // Nếu đã có (đang học dở), thì cập nhật thành Completed
                 progress.Status = "Completed";
                 progress.CompletionPercent = 100;
                 progress.CompletedAt = DateTime.Now;
@@ -140,15 +174,15 @@ namespace Service_TechCompass.Services
 
             await _context.SaveChangesAsync();
 
-            // 4. Bắn tín hiệu Real-time về Frontend để UI tự update màu xanh
+            // 5. Bắn tín hiệu Real-time qua SignalR
             await _hubContext.Clients.Group($"roadmap_user_{userId}").SendAsync("ReceiveRoadmapUpdate", new
             {
                 NodeId = request.NodeId,
                 Status = "Completed",
-                Message = "Kỹ năng đã được cập nhật mở khóa."
+                Message = "Kỹ năng đã được cập nhật hoàn thành."
             });
 
-            return (200, "Chúc mừng! Đã hoàn thành kỹ năng.");
+            return (200, "Chúc mừng! Bạn đã hoàn thành kỹ năng.");
         }
 
         public async Task<(int StatusCode, string Message, DashboardSummaryDto? Data)> GetStudentDashboardAsync(Guid userId)
@@ -197,6 +231,5 @@ namespace Service_TechCompass.Services
 
             return (200, "Lấy thông tin tiến độ thành công.", dashboardData);
         }
-
     }
 }

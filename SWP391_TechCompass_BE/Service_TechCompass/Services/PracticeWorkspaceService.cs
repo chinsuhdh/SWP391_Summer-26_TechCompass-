@@ -5,61 +5,76 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.DTOs.Assessment;
 using Service_TechCompass.DTOs.Practice;
 using Service_TechCompass.Interfaces;
-// THÊM NAMESPACE SEMANTIC KERNEL
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace Service_TechCompass.Services
 {
     public class PracticeWorkspaceService : IPracticeWorkspaceService
     {
         private readonly IPracticeWorkspaceRepository _repository;
-        private readonly HttpClient _httpClient; // Giữ lại cho JDoodle
+        private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
-        private readonly IChatCompletionService _chatCompletionService; // Khai báo bộ dịch vụ của SK
+        private readonly IChatCompletionService _chatCompletionService;
+        private readonly IMemoryCache _cache; // Inject Cache để chặn gọi API lặp lại
 
-        public PracticeWorkspaceService(IPracticeWorkspaceRepository repository, HttpClient httpClient, IConfiguration configuration, Kernel kernel)
+        public PracticeWorkspaceService(
+            IPracticeWorkspaceRepository repository,
+            HttpClient httpClient,
+            IConfiguration configuration,
+            Kernel kernel,
+            IMemoryCache cache)
         {
             _repository = repository;
             _httpClient = httpClient;
             _configuration = configuration;
-            // Trích xuất service chat từ DI Container thông qua ID định danh
+            _cache = cache;
             _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
         public async Task<RunCodeResponseDto> RunCodeAsync(RunCodeRequestDto request)
         {
+            // 1. TẠO CACHE KEY DỰA TRÊN CODE + NGÔN NGỮ + INPUT
+            string sourceHash = request.SourceCode != null ? request.SourceCode.GetHashCode().ToString() : "EMPTY";
+            string stdinHash = request.Stdin != null ? request.Stdin.GetHashCode().ToString() : "EMPTY";
+            string cacheKey = $"RUN_CODE_{request.Language?.ToLower()}_{sourceHash}_{stdinHash}";
+
+            // 2. NẾU USER BẤM LIÊN TỤC MÀ CHƯA SỬA CODE -> TRẢ VỀ KẾT QUẢ CACHE NGAY (TRÁNH GỌI JDOODLE)
+            if (_cache.TryGetValue(cacheKey, out RunCodeResponseDto? cachedResponse) && cachedResponse != null)
+            {
+                return cachedResponse;
+            }
+
             string clientId = _configuration["JDoodleConfig:ClientId"];
             string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
             string apiUrl = "https://api.jdoodle.com/v1/execute";
 
-            // MỞ RỘNG ĐỂ HỖ TRỢ SQL, BASH, CPP THEO ĐÚNG ĐỊNH DANH CỦA JDOODLE
-            string jLanguage = request.Language.ToLower() switch
+            string jLanguage = request.Language?.ToLower() switch
             {
                 "csharp" => "csharp",
                 "javascript" => "nodejs",
                 "python" => "python3",
                 "java" => "java",
-                "sql" => "sql",       // Thêm hỗ trợ SQL Compiler
-                "bash" => "bash",     // Thêm hỗ trợ Bash Script
-                "cpp" => "cpp14",     // Thêm hỗ trợ C++ (g++ 14)
+                "sql" => "sql",
+                "bash" => "bash",
+                "cpp" => "cpp14",
                 _ => "csharp"
             };
 
-            // Thiết lập version Index phù hợp với cấu hình của từng môi trường JDoodle
             string jVersion = jLanguage switch
             {
                 "csharp" => "4",
-                "sql" => "0",         // SQL thường dùng versionIndex = 0
-                "bash" => "0",        // Bash dùng versionIndex = 0
-                "cpp14" => "4",       // C++14 dùng versionIndex = 4
+                "sql" => "0",
+                "bash" => "0",
+                "cpp14" => "4",
                 _ => "0"
             };
 
@@ -91,7 +106,6 @@ namespace Service_TechCompass.Services
                     return new RunCodeResponseDto { Output = "JDoodle API Error: " + errorEl.GetString(), IsError = true };
                 }
 
-                // Bổ sung lấy thông tin từ 'stdout' phòng khi JDoodle trả về cấu trúc khác biệt cho một số ngôn ngữ script
                 string output = string.Empty;
                 if (root.TryGetProperty("output", out var outputEl))
                 {
@@ -102,13 +116,22 @@ namespace Service_TechCompass.Services
                     output = stdoutEl.GetString() ?? "";
                 }
 
-                return new RunCodeResponseDto { Output = string.IsNullOrEmpty(output) ? "Không có output (Chạy thành công)." : output, IsError = false };
+                var finalResult = new RunCodeResponseDto
+                {
+                    Output = string.IsNullOrEmpty(output) ? "Không có output (Chạy thành công)." : output,
+                    IsError = false
+                };
+
+                // 3. LƯU CACHE 2 PHÚT NẾU CHẠY THÀNH CÔNG
+                _cache.Set(cacheKey, finalResult, TimeSpan.FromMinutes(2));
+
+                return finalResult;
             }
             catch (Exception ex)
             {
                 return new RunCodeResponseDto
                 {
-                    Output = $"Không thể kết nối đến JDoodle. Chi tiết lỗi: {ex.Message}",
+                    Output = $"Không thể kết nối đến JDoodle hoặc hệ thống biên dịch đang bận. Chi tiết: {ex.Message}",
                     IsError = true
                 };
             }
@@ -127,7 +150,6 @@ namespace Service_TechCompass.Services
                 SentAt = DateTime.Now
             });
 
-            // Sử dụng ChatHistory để kiểm soát nghiêm ngặt AI Tutor đóng đúng vai trò sư phạm
             var chatHistory = new ChatHistory();
             chatHistory.AddSystemMessage("Bạn là một gia sư lập trình (AI Tutor). Nguyên tắc tối thượng: CHỈ GỢI Ý (HINTS), TUYỆT ĐỐI KHÔNG ĐƯỢC VIẾT SẴN CODE GIẢI BÀI CHO HỌC VIÊN. Hãy dẫn dắt để học viên tự tìm ra tư duy logic.");
 
@@ -138,17 +160,16 @@ Câu hỏi của học viên: {request.UserMessage}
 Hãy trả lời ngắn gọn, thân thiện bằng tiếng Việt, và đưa ra 1 gợi ý tiếp theo.";
             chatHistory.AddUserMessage(prompt);
 
-            string aiResponseText = "Xin lỗi, AI Tutor hiện đang quá tải. Hãy thử lại sau.";
+            string aiResponseText = "Xin lỗi, AI Tutor hiện đang quá tải hoặc tạm thời không thể phản hồi. Bạn hãy thử lại sau ít phút nhé.";
 
             try
             {
-                // Thực thi gọi API thông qua Semantic Kernel
                 var response = await _chatCompletionService.GetChatMessageContentAsync(chatHistory);
                 aiResponseText = response.ToString() ?? aiResponseText;
             }
             catch
             {
-                // Bỏ qua lỗi kết nối hệ thống AI để bảo vệ app không crash
+                // Bỏ qua lỗi kết nối hệ thống AI để bảo vệ ứng dụng không bị crash
             }
 
             await _repository.SaveChatMessageAsync(new ChatMessage

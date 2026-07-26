@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -9,8 +10,11 @@ using Service_TechCompass.Interfaces;
 using Service_TechCompass.Services;
 using Service_TechCompass.Services.BackgroundJobs;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.SemanticKernel;
 using Hangfire;
+using Polly;
+using Polly.Extensions.Http;
 
 namespace API_TechCompass
 {
@@ -33,6 +37,20 @@ namespace API_TechCompass
             });
 
             builder.Services.AddMemoryCache();
+
+            // CẤU HÌNH RATE LIMITING CHỐNG SPAM REQUEST
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+                options.AddFixedWindowLimiter(policyName: "StrictApiPolicy", opt =>
+                {
+                    opt.PermitLimit = 5; // Tối đa 5 requests
+                    opt.Window = TimeSpan.FromMinutes(1); // Trong vòng 1 phút
+                    opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                    opt.QueueLimit = 0; // Từ chối ngay nếu vượt ngưỡng, không cho xếp hàng
+                });
+            });
 
             // 2. DATABASE CONTEXT
             builder.Services.AddDbContext<Swp391CareerRoadmapContext>(options =>
@@ -84,20 +102,24 @@ namespace API_TechCompass
             builder.Services.AddScoped<ILearningHubService, LearningHubService>();
             builder.Services.AddScoped<IAdminContentService, AdminContentService>();
             builder.Services.AddScoped<IAdminMonitorService, AdminMonitorService>();
-            builder.Services.AddScoped<IPracticeWorkspaceService, PracticeWorkspaceService>();
             builder.Services.AddScoped<ISkillGapReportService, SkillGapReportService>();
             builder.Services.AddScoped<IPortfolioService, PortfolioService>();
             builder.Services.AddScoped<IVirtualMentorService, VirtualMentorService>();
             builder.Services.AddScoped<ICounselorService, CounselorService>();
+            builder.Services.AddScoped<IMentorService, MentorService>();
             builder.Services.AddScoped<IDashboardService, DashboardService>();
+
+            // CẤU HÌNH HTTP CLIENT KÈM CIRCUIT BREAKER VỚI POLLY CHỐNG SẬP DỊCH VỤ NGOÀI
+            builder.Services.AddHttpClient<IPracticeWorkspaceService, PracticeWorkspaceService>()
+                .AddTransientHttpErrorPolicy(policy =>
+                    policy.CircuitBreakerAsync(
+                        handledEventsAllowedBeforeBreaking: 3, // Lỗi 3 lần liên tiếp
+                        durationOfBreak: TimeSpan.FromSeconds(30) // Tự ngắt API trong 30s
+                    ));
 
             builder.Services.AddHttpClient<IQuizSyncService, QuizSyncService>();
             builder.Services.AddHttpClient<ICareerService, CareerService>();
             builder.Services.AddHttpClient<IMarketPulseService, MarketPulseService>();
-
-            // Thêm dòng này vào Program.cs (trong phần AddServices)
-            builder.Services.AddScoped<ICounselorService, CounselorService>();
-            builder.Services.AddScoped<IMentorService, MentorService>();
 
             builder.Services.AddSignalR();
             builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(1000));
@@ -115,38 +137,35 @@ namespace API_TechCompass
             // 5. AUTHENTICATION & JWT
             var jwtConfig = builder.Configuration.GetSection("Jwt");
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtConfig["Issuer"],
-            ValidAudience = jwtConfig["Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!))
-        };
-
-        // THÊM ĐOẠN NÀY ĐỂ SIGNALR ĐỌC ĐƯỢC TOKEN
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-
-                // Nếu request có token và đang gọi vào endpoint của SignalR
-                if (!string.IsNullOrEmpty(accessToken) &&
-                   (path.StartsWithSegments("/hubs") || path.StartsWithSegments("/portfolioHub")))
+                .AddJwtBearer(options =>
                 {
-                    // Cấp token cho context
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            }
-        };
-    });
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = jwtConfig["Issuer"],
+                        ValidAudience = jwtConfig["Audience"],
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig["Key"]!))
+                    };
+
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnMessageReceived = context =>
+                        {
+                            var accessToken = context.Request.Query["access_token"];
+                            var path = context.HttpContext.Request.Path;
+
+                            if (!string.IsNullOrEmpty(accessToken) &&
+                               (path.StartsWithSegments("/hubs") || path.StartsWithSegments("/portfolioHub")))
+                            {
+                                context.Token = accessToken;
+                            }
+                            return Task.CompletedTask;
+                        }
+                    };
+                });
 
             builder.Services.AddControllers();
             builder.Services.AddEndpointsApiExplorer();
@@ -162,8 +181,10 @@ namespace API_TechCompass
 
             app.UseHttpsRedirection();
 
-            // KÍCH HOẠT CORS ĐÚNG THỨ TỰ (Trước Authentication/Authorization)
             app.UseCors("AllowAll");
+
+            // KÍCH HOẠT RATE LIMITER MIDDLEWARE (ĐÃ SỬA TÊN METHOD)
+            app.UseRateLimiter();
 
             app.UseAuthentication();
             app.UseAuthorization();

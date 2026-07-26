@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Service_TechCompass.DTOs.Practice;
 using Service_TechCompass.Interfaces;
 
@@ -6,6 +9,7 @@ namespace API_TechCompass.Controllers
 {
     [Route("api/v1/[controller]")]
     [ApiController]
+    [EnableRateLimiting("StrictApiPolicy")] // Áp dụng giới hạn 5 request/phút chống spam
     public class PracticeWorkspaceController : ControllerBase
     {
         private readonly IPracticeWorkspaceService _practiceService;

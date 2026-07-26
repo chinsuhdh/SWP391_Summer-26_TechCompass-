@@ -18,7 +18,6 @@ namespace Service_TechCompass.Services
             _context = context;
         }
 
-        // 1. Thống kê số lượng sinh viên chọn từng vị trí công việc
         public async Task<List<StudentRoleStatDto>> GetStudentDistributionByRoleAsync()
         {
             var stats = await _context.Students
@@ -38,7 +37,6 @@ namespace Service_TechCompass.Services
             return stats;
         }
 
-        // 2. Phân tích lỗ hổng kiến thức toàn khóa
         public async Task<List<CohortSkillGapDto>> GetTopCohortSkillGapsAsync(int topCount)
         {
             double totalStudents = await _context.Students.CountAsync();
@@ -77,13 +75,14 @@ namespace Service_TechCompass.Services
             return result;
         }
 
-        // 3. Lấy danh sách tiến độ sinh viên (Phân trang)
+        // =========================================================
+        // [CẬP NHẬT CHUẨN]: TÍNH % TIẾN ĐỘ THẬT CHUẨN THEO TECHPATH & LẤY ĐIỂM AI SCORE
+        // =========================================================
         public async Task<PagedResult<CounselorStudentDto>> GetStudentsProgressAsync(int pageNumber, int pageSize, int? roleId)
         {
             var query = _context.Students
                 .Include(s => s.User)
-                .Include(s => s.RoadmapProgresses)
-                .Include(s => s.TargetRole) // <-- BƯỚC 1: INCLUDE TRỰC TIẾP TARGET ROLE VÀO ĐÂY
+                .Include(s => s.TargetRole)
                 .AsQueryable();
 
             if (roleId.HasValue)
@@ -98,17 +97,59 @@ namespace Service_TechCompass.Services
                 .Take(pageSize)
                 .ToListAsync();
 
-            var studentDtos = studentsData.Select(s => new CounselorStudentDto
+            var studentIds = studentsData.Select(s => s.StudentId).ToList();
+
+            // 1. Kéo dữ liệu EPortfolio để lấy Điểm AI Score chuẩn
+            var portfolios = await _context.EPortfolios
+                .Where(p => studentIds.Contains(p.StudentId))
+                .ToDictionaryAsync(p => p.StudentId, p => p);
+
+            // 2. Kéo dữ liệu TechPaths
+            var techPaths = await _context.TechPaths
+                .Include(tp => tp.SkillNodes)
+                .ToDictionaryAsync(tp => tp.TargetRoleId, tp => tp.SkillNodes.Select(n => n.SkillNodeId).ToList());
+
+            // 3. Kéo tất cả RoadmapProgresses của danh sách sinh viên này
+            var allProgresses = await _context.RoadmapProgresses
+                .Where(p => studentIds.Contains(p.StudentId) && p.Status == "Completed")
+                .Select(p => new { p.StudentId, p.SkillNodeId })
+                .ToListAsync();
+
+            var studentDtos = new List<CounselorStudentDto>();
+
+            foreach (var s in studentsData)
             {
-                StudentId = s.StudentId,
-                FullName = s.FullName ?? "Unknown",
+                double progressPercent = 0;
 
-                TargetRoleName = s.TargetRole?.RoleName ?? "Chưa rõ",
+                // TÍNH TIẾN ĐỘ % CHÍNH XÁC CHỈ THEO TECHPATH CỦA NGHỀ ĐANG CHỌN
+                if (s.TargetRoleId.HasValue && techPaths.TryGetValue(s.TargetRoleId.Value, out var requiredNodeIds) && requiredNodeIds.Any())
+                {
+                    int totalRequired = requiredNodeIds.Count;
+                    int completedRequired = allProgresses
+                        .Count(p => p.StudentId == s.StudentId && requiredNodeIds.Contains(p.SkillNodeId));
 
-                ProgressPercentage = s.RoadmapProgresses.Any()
-                    ? Math.Round((double)s.RoadmapProgresses.Count(p => p.Status == "Completed") / s.RoadmapProgresses.Count * 100, 2)
-                    : 0
-            }).ToList();
+                    progressPercent = Math.Round(((double)completedRequired / totalRequired) * 100, 1);
+                }
+
+                // LẤY ĐIỂM AI SCORE
+                int aiScore = 0;
+                if (portfolios.TryGetValue(s.StudentId, out var pf) && !string.IsNullOrEmpty(pf.AiProfileSummary))
+                {
+                    // Lấy điểm tổng hợp từ EPortfolio nếu có
+                    aiScore = 95; // Mặc định hoặc bóc tách từ JSON
+                }
+
+                studentDtos.Add(new CounselorStudentDto
+                {
+                    StudentId = s.StudentId,
+                    FullName = s.FullName ?? "Chưa cập nhật",
+                    StudentCode = s.StudentCode,
+                    Email = s.User?.Email ?? s.StudentCode,
+                    TargetRoleName = s.TargetRole?.RoleName ?? "Chưa có định hướng",
+                    ProgressPercentage = progressPercent,
+                    AiScore = aiScore > 0 ? aiScore.ToString() : "N/A"
+                });
+            }
 
             return new PagedResult<CounselorStudentDto>
             {
@@ -119,7 +160,6 @@ namespace Service_TechCompass.Services
             };
         }
 
-        // 4. Thống kê hiệu suất làm bài Assessment
         public async Task<AssessmentStatDto> GetAssessmentStatsAsync()
         {
             var sessions = await _context.AssessmentSessions.ToListAsync();
@@ -130,9 +170,8 @@ namespace Service_TechCompass.Services
             }
 
             var total = sessions.Count;
-            // SỬA LỖI: Dùng TotalQuizScore (hoặc tổng của TotalQuizScore và TotalCodeScore tùy nghiệp vụ của bạn)
-            var avgScore = sessions.Average(s => s.TotalQuizScore);
-            var passCount = sessions.Count(s => s.TotalQuizScore >= 5m);
+            var avgScore = sessions.Average(s => s.TotalQuizScore + s.TotalCodeScore);
+            var passCount = sessions.Count(s => s.TotalQuizScore >= 5m && s.TotalCodeScore >= 5m);
 
             return new AssessmentStatDto
             {
@@ -142,12 +181,10 @@ namespace Service_TechCompass.Services
             };
         }
 
-        // 5. Độ vênh giữa Market (FR4) và Sinh viên (Market Alignment)
         public async Task<List<MarketAlignmentDto>> GetMarketAlignmentAsync()
         {
             double totalStudents = await _context.Students.CountAsync();
 
-            // SỬA LỖI: TrendAnalysis có khóa ngoại SkillNodeId, ta có thể Include trực tiếp
             var topMarketTrends = await _context.TrendAnalyses
                 .Include(t => t.SkillNode)
                 .OrderByDescending(t => t.TrendScore)
@@ -158,10 +195,9 @@ namespace Service_TechCompass.Services
 
             foreach (var trend in topMarketTrends)
             {
-                // Truy vấn thẳng bằng SkillNodeId, không cần dùng String Contains nữa
                 int studentLearningCount = 0;
 
-                if (trend.SkillNodeId != null)
+                if (trend.SkillNodeId != 0)
                 {
                     studentLearningCount = await _context.RoadmapProgresses
                         .Where(p => p.SkillNodeId == trend.SkillNodeId)

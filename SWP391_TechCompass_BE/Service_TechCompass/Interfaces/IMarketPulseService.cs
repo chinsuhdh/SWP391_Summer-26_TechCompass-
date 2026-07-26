@@ -8,7 +8,9 @@ namespace Service_TechCompass.Interfaces
     public interface IMarketPulseService
     {
         Task<List<JobMatchDto>> GetMatchingJobsAsync(Guid studentId, JobFilterDto filter);
-        Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync(); // Chạy background job
+        Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync();
         Task<List<TrendChartDto>> GetTrendChartDataAsync(int days = 30);
+
+        Task<object> GetMarketOverviewStatsAsync();
     }
 }

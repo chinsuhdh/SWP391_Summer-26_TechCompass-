@@ -6,7 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Caching.Memory; // ĐÃ THÊM: Thư viện Cache
+using Microsoft.Extensions.Caching.Memory;
 using Repository_TechCompass;
 using Repository_TechCompass.Interfaces;
 using Repository_TechCompass.Models;
@@ -26,7 +26,7 @@ namespace Service_TechCompass.Services
         private readonly Swp391CareerRoadmapContext _context;
         private readonly ITelemetryService _telemetryService;
         private readonly IChatCompletionService _geminiService;
-        private readonly IMemoryCache _cache; // ĐÃ THÊM: Biến Cache
+        private readonly IMemoryCache _cache;
 
         public MarketPulseService(
             IMarketPulseRepository repo,
@@ -35,16 +35,15 @@ namespace Service_TechCompass.Services
             Swp391CareerRoadmapContext context,
             ITelemetryService telemetryService,
             Kernel kernel,
-            IMemoryCache cache) // ĐÃ THÊM: Inject IMemoryCache
+            IMemoryCache cache)
         {
             _repo = repo;
             _httpClient = httpClient;
             _config = config;
             _context = context;
             _telemetryService = telemetryService;
-            _cache = cache; // ĐÃ THÊM: Gán biến Cache
+            _cache = cache;
 
-            // Lấy service Gemini từ cấu hình tập trung trong Program.cs
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
@@ -93,9 +92,7 @@ namespace Service_TechCompass.Services
                 });
             }
 
-            // ==========================================
             // GHI LOG CÓ KIỂM SOÁT COOLDOWN (Chống Spam)
-            // ==========================================
             string cacheKey = $"FilterJobLog_{studentId}_{filter.Keyword?.ToLower()}";
 
             if (!_cache.TryGetValue(cacheKey, out _))
@@ -108,7 +105,6 @@ namespace Service_TechCompass.Services
                     details: $"Sinh viên vừa tìm kiếm job với từ khóa '{filter.Keyword}'"
                 );
 
-                // Khóa 10 phút để tránh log rác khi user lật trang hoặc liên tục click
                 _cache.Set(cacheKey, true, TimeSpan.FromMinutes(10));
             }
 
@@ -118,7 +114,7 @@ namespace Service_TechCompass.Services
         }
 
         // ==========================================
-        // 2. DYNAMIC SCRAPING (Cào dữ liệu đa nền tảng)
+        // 2. DYNAMIC SCRAPING (Cào dữ liệu & Phân tích Trend)
         // ==========================================
         public async Task<(int StatusCode, string Message)> RunScraperAndTrendAnalysisAsync()
         {
@@ -183,7 +179,6 @@ namespace Service_TechCompass.Services
                     {
                         job.SkillNodes.Add(node);
 
-                        // Đếm số lần kỹ năng này xuất hiện trong đợt cào dữ liệu
                         if (!skillFrequencyMap.ContainsKey(node.SkillNodeId))
                         {
                             skillFrequencyMap[node.SkillNodeId] = 0;
@@ -194,31 +189,42 @@ namespace Service_TechCompass.Services
                     await _repo.SaveJobPostingAsync(job);
                 }
 
-                // 2. TÍNH TOÁN TREND SCORE VÀ DEMAND PERCENT DỰA TRÊN DỮ LIỆU THỰC TẾ
-                var trendsToSave = new List<TrendAnalysis>();
+                // 2. TÍNH TOÁN VÀ THỰC HIỆN UPSERT (CHỐNG LẶP RECORD TRONG CÙNG NGÀY - BUG-013 FIX)
+                var todayDate = DateOnly.FromDateTime(DateTime.Now);
 
                 foreach (var kvp in skillFrequencyMap)
                 {
                     int skillId = kvp.Key;
                     int frequencyCount = kvp.Value;
 
-                    // Công thức: (Số lần xuất hiện / Tổng số job) * 100
                     decimal realDemandPercent = Math.Round((decimal)frequencyCount / totalJobsScraped * 100, 2);
-
-                    // Công thức Score: Scale % về hệ số 5
                     decimal realTrendScore = Math.Round(realDemandPercent / 20, 2);
 
-                    trendsToSave.Add(new TrendAnalysis
+                    // Kiểm tra xem đã có bản ghi phân tích của kỹ năng này trong ngày hôm nay chưa
+                    var existingTrend = await _context.TrendAnalyses
+                        .FirstOrDefaultAsync(t => t.SkillNodeId == skillId && t.AnalyzedDate == todayDate);
+
+                    if (existingTrend != null)
                     {
-                        SkillNodeId = skillId,
-                        AnalyzedDate = DateOnly.FromDateTime(DateTime.Now),
-                        DemandPercent = realDemandPercent,
-                        TrendScore = realTrendScore
-                    });
+                        // Đã có -> Cập nhật thông số mới nhất
+                        existingTrend.DemandPercent = realDemandPercent;
+                        existingTrend.TrendScore = realTrendScore;
+                    }
+                    else
+                    {
+                        // Chưa có -> Tạo bản ghi mới
+                        _context.TrendAnalyses.Add(new TrendAnalysis
+                        {
+                            SkillNodeId = skillId,
+                            AnalyzedDate = todayDate,
+                            DemandPercent = realDemandPercent,
+                            TrendScore = realTrendScore
+                        });
+                    }
                 }
 
-                // 3. LƯU BẢN GHI THỐNG KÊ (Mỗi ngày/đợt cào chỉ có 1 dòng cho 1 kỹ năng)
-                if (trendsToSave.Any()) await _repo.SaveTrendAnalysisAsync(trendsToSave);
+                // Lưu toàn bộ thay đổi xuống Database
+                await _context.SaveChangesAsync();
 
                 watch.Stop();
 
@@ -227,7 +233,7 @@ namespace Service_TechCompass.Services
                     progressId: Guid.Empty,
                     actionType: "SYSTEM_JOB_SCRAPED",
                     durationSeconds: (int)watch.Elapsed.TotalSeconds,
-                    details: $"Cào {totalJobsScraped} jobs. Phân tích được {trendsToSave.Count} kỹ năng xu hướng cho nhóm ngành '{query}'."
+                    details: $"Cào {totalJobsScraped} jobs. Đã cập nhật (Upsert) {skillFrequencyMap.Count} kỹ năng xu hướng cho nhóm ngành '{query}'."
                 );
 
                 return (200, $"Cào thành công {totalJobsScraped} công việc và cập nhật Trend thực tế.");
@@ -254,7 +260,6 @@ Mô tả công việc: {description}";
 
             try
             {
-                // SỬ DỤNG SEMANTIC KERNEL THAY VÌ HTTPCLIENT THỦ CÔNG
                 var chatHistory = new ChatHistory();
                 chatHistory.AddUserMessage(prompt);
 
@@ -288,6 +293,26 @@ Mô tả công việc: {description}";
                     }).OrderBy(x => x.AnalyzedDate).ToList()
                 }).ToList();
             return grouped;
+        }
+
+        public async Task<object> GetMarketOverviewStatsAsync()
+        {
+            var today = DateTime.Now.Date;
+
+            int totalJobs = await _context.JobPostings.CountAsync();
+            int todayJobs = await _context.JobPostings.CountAsync(j => j.ScrapedAt >= today);
+            int totalCompanies = await _context.JobPostings
+                .Select(j => j.CompanyName)
+                .Distinct()
+                .CountAsync();
+
+            return new
+            {
+                TotalJobs = totalJobs,
+                TodayJobs = todayJobs,
+                TotalCompanies = totalCompanies,
+                LastUpdated = DateTime.Now.ToString("dd/MM/yyyy HH:mm")
+            };
         }
     }
 }

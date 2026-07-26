@@ -73,24 +73,15 @@ namespace API_TechCompass.Controllers
         // =========================================================
         // CẬP NHẬT: THÊM TÙY CHỌN [FromQuery] confirmSwitch
         // =========================================================
-        [HttpPost("generate-from-session/{sessionId}")]
-        public async Task<IActionResult> GenerateRoadmapFromSession(Guid sessionId, [FromQuery] bool confirmSwitch = false)
+        [HttpPost("process-assessment/{sessionId}")]
+        public async Task<IActionResult> ProcessAssessment(Guid sessionId)
         {
-            var userId = GetCurrentUserId();
-            var res = await _engineService.GenerateAiRoadmapFromSessionAsync(userId, sessionId, confirmSwitch);
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(userIdClaim, out var userId))
+                return Unauthorized("Phiên đăng nhập không hợp lệ.");
 
-            // Bắt mã 202 (Yêu cầu xác nhận đổi ngành)
-            if (res.StatusCode == 202)
-            {
-                return StatusCode(202, new { message = res.Message, data = res.Data });
-            }
-
-            if (res.StatusCode != 200)
-            {
-                return StatusCode(res.StatusCode, new { message = res.Message });
-            }
-
-            return Ok(new { message = res.Message, data = res.Data });
+            var (statusCode, message, data) = await _engineService.ProcessAssessmentResultAsync(userId, sessionId);
+            return StatusCode(statusCode, new { message, data });
         }
     }
 }

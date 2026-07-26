@@ -1,5 +1,4 @@
-﻿// src/Service_TechCompass/Services/PortfolioService.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -55,12 +54,30 @@ namespace Service_TechCompass.Services
             return MapToDto(portfolio);
         }
 
+        // =========================================================
+        // [BUG-014 FIX]: ĐỌC FRONTEND BASE URL TỪ CONFIGURATION
+        // =========================================================
         public async Task<string> GenerateShareableUrlAsync(Guid studentId)
         {
             var p = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId)
-                    ?? await _portfolioRepo.CreatePortfolioAsync(new EPortfolio { PortfolioId = Guid.NewGuid(), StudentId = studentId, CreatedAt = DateTime.Now });
+                    ?? await _portfolioRepo.CreatePortfolioAsync(new EPortfolio
+                    {
+                        PortfolioId = Guid.NewGuid(),
+                        StudentId = studentId,
+                        CreatedAt = DateTime.Now
+                    });
 
-            p.ShareableUrl = $"https://techcompass.com/p/{Guid.NewGuid().ToString("N")[..8]}";
+            // 1. Đọc Base URL từ AppSettings (Kiểm tra nhiều key dự phòng)
+            string baseUrl = _config["AppConfig:FrontendBaseUrl"]
+                          ?? _config["FrontendBaseUrl"]
+                          ?? "https://techcompass.com";
+
+            // 2. Chuẩn hóa bỏ dấu '/' ở cuối nếu có
+            baseUrl = baseUrl.TrimEnd('/');
+
+            // 3. Sinh URL định danh duy nhất dựa trên Config
+            p.ShareableUrl = $"{baseUrl}/p/{Guid.NewGuid().ToString("N")[..8]}";
+
             await _portfolioRepo.UpdatePortfolioAsync(p);
             return p.ShareableUrl;
         }
@@ -73,18 +90,14 @@ namespace Service_TechCompass.Services
 
         public async Task<PortfolioFeedbackResponseDto> AddPortfolioFeedbackAsync(Guid portfolioId, Guid mentorUserId, CreatePortfolioFeedbackDto dto)
         {
-            // 1. Tìm portfolio để biết sinh viên nào đang nhận feedback
             var portfolio = await _portfolioRepo.GetPortfolioByIdAsync(portfolioId);
             if (portfolio == null)
             {
-                // Vì DTO của bạn không có trường Success/Message, cách tốt nhất khi lỗi là ném ra Exception 
-                // và để Controller bắt (try-catch) trả về HTTP 400/404.
                 throw new ArgumentException("Portfolio không tồn tại.");
             }
 
             Guid studentId = portfolio.StudentId;
 
-            // 2. Tạo Session lưu nội dung đánh giá
             var session = new MentorSession
             {
                 SessionId = Guid.NewGuid(),
@@ -93,7 +106,6 @@ namespace Service_TechCompass.Services
                 ScheduledAt = DateTime.UtcNow,
                 DurationMinutes = 0,
                 Status = "Completed",
-                // SỬA LỖI: Map đúng thuộc tính dto.Content vào ReviewNotes của Entity
                 ReviewNotes = dto.Content,
                 PaymentStatus = "Free"
             };
@@ -102,23 +114,21 @@ namespace Service_TechCompass.Services
 
             if (isSaved)
             {
-                // 3. Bắn SignalR thông báo Realtime cho Sinh viên
                 await _hubContext.Clients.User(studentId.ToString()).SendAsync("ReceiveNewFeedback", new
                 {
                     PortfolioId = portfolioId,
                     MentorId = mentorUserId,
                     Message = "Bạn vừa nhận được nhận xét mới từ Mentor!",
-                    FeedbackContent = dto.Content, // Map đúng Content
+                    FeedbackContent = dto.Content,
                     Timestamp = DateTime.UtcNow
                 });
 
-                // SỬA LỖI: Trả về đúng các thuộc tính mà PortfolioFeedbackResponseDto yêu cầu
                 return new PortfolioFeedbackResponseDto
                 {
                     FeedbackId = session.SessionId,
                     PortfolioId = portfolioId,
                     MentorId = mentorUserId,
-                    MentorName = "Mentor", // Nếu muốn tên thật, bạn cần query thêm bảng Mentor/User
+                    MentorName = "Mentor",
                     Content = dto.Content,
                     CreatedAt = session.ScheduledAt ?? DateTime.UtcNow
                 };
@@ -333,12 +343,13 @@ Yêu cầu: Không dùng Markdown. Văn phong chuyên nghiệp, truyền cảm h
             {
                 string safeSummaryText = summaryText.Replace("\"", "'").Replace("\n", " ").Replace("\r", "");
 
-                string finalJsonData = $@"{{
-                  ""ProfileSummaryText"": ""{safeSummaryText}"",
-                  ""AnalysisData"": {portfolio.AiProfileSummary}
-                }}";
+                var finalObject = new
+                {
+                    ProfileSummaryText = summaryText.Trim(),
+                    AnalysisData = JsonSerializer.Deserialize<JsonElement>(portfolio.AiProfileSummary)
+                };
+                portfolio.AiProfileSummary = JsonSerializer.Serialize(finalObject);
 
-                portfolio.AiProfileSummary = finalJsonData;
                 await _portfolioRepo.UpdatePortfolioAsync(portfolio);
             }
         }

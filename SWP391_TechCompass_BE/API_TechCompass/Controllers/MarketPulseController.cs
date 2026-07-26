@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Service_TechCompass.DTOs;
 using Service_TechCompass.Interfaces;
-using Hangfire; // ĐÃ THÊM: Dùng cho tiến trình nền
+using Hangfire;
 
 namespace API_TechCompass.Controllers
 {
@@ -16,6 +16,21 @@ namespace API_TechCompass.Controllers
         public MarketPulseController(IMarketPulseService marketPulseService)
         {
             _marketPulseService = marketPulseService;
+        }
+
+        // ENDPOINT MỚI: Trả về thống kê tổng quan thị trường cho Jobs.jsx
+        [HttpGet("overview-stats")]
+        public async Task<IActionResult> GetOverviewStats()
+        {
+            try
+            {
+                var stats = await _marketPulseService.GetMarketOverviewStatsAsync();
+                return Ok(new { message = "Lấy thống kê tổng quan thị trường thành công", data = stats });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
 
         // Task 51 & 52: Sinh viên gọi để xem Job hợp với mình
@@ -50,13 +65,10 @@ namespace API_TechCompass.Controllers
 
         // Task 53, 54, 55: Trigger bằng tay 
         [HttpPost("admin/trigger-scraper")]
-        public IActionResult TriggerScraper() // ĐÃ SỬA: Bỏ async Task vì gọi Hangfire xong là xong luôn
+        public IActionResult TriggerScraper()
         {
-            // HANGFIRE: Đưa nhiệm vụ cào dữ liệu & phân tích xu hướng vào Queue chạy ngầm
             BackgroundJob.Enqueue<IMarketPulseService>(service => service.RunScraperAndTrendAnalysisAsync());
-
-            // Lập tức trả về cho Admin (Phản hồi trong 0.01 giây thay vì phải chờ 15 phút)
-            return Ok(new { message = "Lệnh cào dữ liệu Job Market đã được đưa vào tiến trình chạy ngầm. Quá trình này có thể tốn 5-10 phút. Admin có thể kiểm tra tại /hangfire." });
+            return Ok(new { message = "Lệnh cào dữ liệu Job Market đã được đưa vào tiến trình chạy ngầm." });
         }
     }
 }

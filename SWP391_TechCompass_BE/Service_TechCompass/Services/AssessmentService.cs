@@ -19,6 +19,7 @@ namespace Service_TechCompass.Services
     public class AssessmentService : IAssessmentService
     {
         private readonly IAssessmentRepository _repository;
+        private readonly IUserRepository _userRepo;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly IQuizSyncService _quizSyncService;
@@ -308,12 +309,14 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
         // ==========================================
         public async Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission)
         {
+            var student = _userRepo.GetStudentByUserId(submission.StudentId);
+            if (student == null) throw new Exception("Không tìm thấy sinh viên.");
             var session = new AssessmentSession
             {
                 SessionId = Guid.NewGuid(),
-                StudentId = submission.StudentId,
+                StudentId = student.StudentId,
                 SkillNodeId = submission.SkillNodeId,
-                AssessmentType = "TESTED", // Gán cờ rõ ràng cho bài làm thật
+                AssessmentType = "TESTED", 
                 TakenAt = DateTime.Now
             };
 
@@ -469,6 +472,7 @@ Chỉ trả về nội dung nhận xét.";
                 skillNodeId = session.SkillNodeId,
                 nodeName = session.SkillNode?.NodeName,
                 testScore = session.TotalQuizScore + session.TotalCodeScore,
+                testScorePercent = Math.Round((session.TotalQuizScore + session.TotalCodeScore) / 20.0m * 100, 2),
                 aiFeedback = session.CodeDetail?.AiFeedback,
                 submittedCode = session.CodeDetail?.SourceCode,
                 takenAt = session.TakenAt

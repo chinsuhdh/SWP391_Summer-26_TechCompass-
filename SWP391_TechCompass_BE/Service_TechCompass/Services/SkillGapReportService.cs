@@ -47,18 +47,20 @@ namespace Service_TechCompass.Services
             }
 
             var role = await _context.TargetCareerRoles.FindAsync(student.TargetRoleId);
-
             string targetRoleName = role != null ? role.RoleName : $"Role ID: {student.TargetRoleId}";
 
             string aiSummary = !string.IsNullOrWhiteSpace(student.LatentTalentSummary)
                                 ? student.LatentTalentSummary
                                 : "Hệ thống đang thu thập thêm dữ liệu để đưa ra nhận xét chính xác về bạn.";
 
+            // 1. CHỈ LẤY CÁC NODE THUỘC LỘ TRÌNH MỤC TIÊU CỦA SINH VIÊN (Tránh bị tràn 50 nodes rác)
             var requiredNodes = await (from path in _context.TechPaths
                                        join node in _context.SkillNodes on path.TechPathId equals node.TechPathId
                                        where path.TargetRoleId == student.TargetRoleId
+                                       orderby node.PriorityLevel ascending
                                        select node).ToListAsync();
 
+            // 2. LẤY ĐIỂM BÀI TEST & KHAI BÁO NĂNG LỰC (ASSESSMENT SESSIONS)
             var userSessions = await _context.AssessmentSessions
                 .Where(s => s.StudentId == studentId)
                 .GroupBy(s => s.SkillNodeId)
@@ -69,23 +71,40 @@ namespace Service_TechCompass.Services
                 })
                 .ToListAsync();
 
+            // 3. LẤY TRẠNG THÁI TIẾN ĐỘ THẬT TỪ CÂY ROADMAP
+            var roadmapProgresses = await _context.RoadmapProgresses
+                .Where(p => p.StudentId == studentId)
+                .ToDictionaryAsync(p => p.SkillNodeId, p => p.Status);
+
             var resultList = new List<SkillGapItemDto>();
 
             foreach (var node in requiredNodes)
             {
+                decimal currentPercent = 0m;
+
+                // Cách 1: Tính điểm từ bài test/self-declared session
                 var session = userSessions.FirstOrDefault(s => s.SkillNodeId == node.SkillNodeId);
-                decimal currentPercent = session != null ? (session.MaxScore / 20.0m) * 100m : 0m;
+                if (session != null)
+                {
+                    currentPercent = (session.MaxScore / 20.0m) * 100m;
+                }
+
+                // Cách 2: Nếu đã đánh dấu Completed trong Roadmap Progress -> 100%
+                if (roadmapProgresses.TryGetValue(node.SkillNodeId, out string? status) && status == "Completed")
+                {
+                    currentPercent = Math.Max(currentPercent, 100m);
+                }
 
                 resultList.Add(new SkillGapItemDto
                 {
                     NodeName = node.NodeName,
                     CurrentScore = Math.Round(currentPercent, 0),
-                    TargetScore = 80,
+                    TargetScore = 80, // Mức điểm mục tiêu chuẩn
                     RoleName = targetRoleName
                 });
             }
 
-            // LOGIC COOLDOWN: Chặn spam log VIEW_SKILL_GAP vào Database
+            // LOGIC TELEMETRY COOLDOWN
             string cacheKey = $"ViewSkillGapLog_{studentId}";
             if (!_cache.TryGetValue(cacheKey, out _))
             {
@@ -97,7 +116,6 @@ namespace Service_TechCompass.Services
                     details: $"Đã kiểm tra hổng kỹ năng cho mục tiêu: {targetRoleName}"
                 );
 
-                // Set thời gian chờ là 30 phút. 
                 _cache.Set(cacheKey, true, TimeSpan.FromMinutes(30));
             }
 
