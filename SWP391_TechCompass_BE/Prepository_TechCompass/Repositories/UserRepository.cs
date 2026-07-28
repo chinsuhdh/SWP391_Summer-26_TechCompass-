@@ -64,6 +64,13 @@ namespace Repository_TechCompass.Repositories
             _context.Mentors.Add(mentor);
         }
 
+        public bool IsStudentCodeExists(string studentCode, Guid currentStudentId)
+        {
+            return _context.Students.Any(s =>
+                s.StudentCode == studentCode &&
+                s.StudentId != currentStudentId);
+        }
+
         public void AddCounselor(Counselor counselor)
         {
             _context.Counselors.Add(counselor);

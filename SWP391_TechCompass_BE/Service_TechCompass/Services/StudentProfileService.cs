@@ -136,10 +136,23 @@ namespace Service_TechCompass.Services
                 return (404, "Không tìm thấy hồ sơ sinh viên để cập nhật.");
             }
 
+            // 1. Lọc và chuẩn hóa Mã học viên mới
+            string newStudentCode = string.IsNullOrWhiteSpace(request.StudentCode) ? null : request.StudentCode.Trim();
+
+            // 2. [THÊM MỚI] - Chủ động kiểm tra trùng lặp
+            if (!string.IsNullOrEmpty(newStudentCode))
+            {
+                bool isCodeTaken = _userRepo.IsStudentCodeExists(newStudentCode, student.StudentId);
+                if (isCodeTaken)
+                {
+                    return (400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại.");
+                }
+            }
+
             bool isRoleChanged = student.TargetRoleId != request.TargetRoleId;
 
             student.FullName = request.FullName;
-            student.StudentCode = string.IsNullOrWhiteSpace(request.StudentCode) ? null : request.StudentCode.Trim();
+            student.StudentCode = newStudentCode;
             student.LatentTalentSummary = request.LatentTalentSummary;
             student.TargetRoleId = request.TargetRoleId;
             student.UpdatedAt = DateTime.Now;
@@ -161,6 +174,7 @@ namespace Service_TechCompass.Services
             }
             catch (DbUpdateException ex)
             {
+                // Vẫn giữ catch DbUpdateException như một lớp phòng thủ cuối cùng (phòng trường hợp 2 user update cùng 1 tíc tắc)
                 if (ex.InnerException != null && ex.InnerException.Message.Contains("UQ_students_student_code"))
                 {
                     return (400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại.");

@@ -1,4 +1,5 @@
-﻿using System;
+// Service_TechCompass/Services/PortfolioService.cs
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -141,23 +142,22 @@ namespace Service_TechCompass.Services
         #region 1. MASTER PIPELINE
         public async Task ProcessFullGithubPipelineAsync(Guid studentId, string githubUsername)
         {
-            var syncResult = await SyncGithubReposAsync(studentId, githubUsername);
-            if (syncResult.StatusCode != 200) return;
-
-            var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            if (portfolio == null || portfolio.GithubRepositories == null) return;
-
-            var unanalyzedRepos = portfolio.GithubRepositories.Where(r => string.IsNullOrEmpty(r.AiProjectSummary)).ToList();
-            foreach (var repo in unanalyzedRepos)
+            try
             {
-                await AnalyzeRepoWithAiAsync(repo.RepoId);
+                var syncResult = await SyncGithubReposAsync(studentId, githubUsername);
+                if (syncResult.StatusCode != 200)
+                {
+                    await _hubContext.Clients.All.SendAsync("PipelineFailed", studentId, syncResult.Message);
+                    return;
+                }
+
+                await _hubContext.Clients.All.SendAsync("PipelineCompleted", studentId);
             }
-
-            portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId);
-            await EvaluateRoleSuitabilityAsync(studentId, portfolio!.PortfolioId);
-            await GenerateEPortfolioSummaryAsync(studentId, portfolio.PortfolioId);
-
-            await _hubContext.Clients.User(studentId.ToString()).SendAsync("PipelineCompleted");
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PIPELINE ERROR]: {ex.Message}");
+                await _hubContext.Clients.All.SendAsync("PipelineFailed", studentId, "Lỗi trong quá trình đồng bộ. Vui lòng thử lại sau.");
+            }
         }
         #endregion
 
@@ -165,20 +165,74 @@ namespace Service_TechCompass.Services
         public async Task<(int StatusCode, string Message)> SyncGithubReposAsync(Guid studentId, string githubUsername)
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            // =====================================================================
+            // [SECURITY-FIX #1]: XÁC THỰC CHỦ SỞ HỮU GITHUB USERNAME
+            // =====================================================================
+            var student = await _portfolioRepo.GetStudentByIdAsync(studentId);
+            if (student == null)
+                return (404, "Không tìm thấy hồ sơ sinh viên.");
+
+            if (!string.IsNullOrWhiteSpace(student.GithubUsername))
+            {
+                // Sinh viên đã đăng ký Github username trước đó → bắt buộc phải khớp
+                if (!student.GithubUsername.Equals(githubUsername.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return (403, $"GitHub username không khớp với hồ sơ đã đăng ký ('{student.GithubUsername}'). " +
+                                  "Nếu muốn thay đổi, vui lòng cập nhật trong phần Thông tin cá nhân trước.");
+                }
+            }
+            else
+            {
+                // =====================================================================
+                // [SECURITY-FIX #2.5]: KIỂM TRA TÍNH DUY NHẤT TOÀN HỆ THỐNG
+                // =====================================================================
+                string cleanUsername = githubUsername.Trim();
+                bool isTaken = await _portfolioRepo.IsGithubUsernameTakenAsync(cleanUsername);
+
+                if (isTaken)
+                {
+                    return (409, $"Tài khoản GitHub '{cleanUsername}' đã được liên kết với một sinh viên khác trong hệ thống TechCompass. Không thể sử dụng chung!");
+                }
+
+                // Lần đầu sync và tên chưa ai dùng → tự động lưu username vào hồ sơ
+                student.GithubUsername = cleanUsername;
+                student.UpdatedAt = DateTime.Now;
+                await _portfolioRepo.UpdateStudentAsync(student);
+            }
+            // =====================================================================
+
             var portfolio = await _portfolioRepo.GetPortfolioByStudentIdAsync(studentId)
                          ?? await _portfolioRepo.CreatePortfolioAsync(new EPortfolio { PortfolioId = Guid.NewGuid(), StudentId = studentId, CreatedAt = DateTime.Now });
 
             try
             {
+                // Lấy danh sách Repo hiện có trong DB (đã include sẵn từ portfolio)
+                var existingRepos = portfolio.GithubRepositories?.ToList() ?? new List<GithubRepository>();
+
                 var github = new GitHubClient(new ProductHeaderValue("TechCompassApp"));
                 var githubToken = _config["GithubConfig:PersonalAccessToken"];
                 if (!string.IsNullOrEmpty(githubToken)) github.Credentials = new Credentials(githubToken);
 
-                var repos = await github.Repository.GetAllForUser(githubUsername);
-                int syncCount = 0;
-                var existingRepos = portfolio.GithubRepositories ?? new List<GithubRepository>();
+                // Kéo danh sách từ GitHub về
+                var incomingRepos = await github.Repository.GetAllForUser(githubUsername);
+                var incomingRepoUrls = incomingRepos.Select(r => r.HtmlUrl).ToList();
 
-                foreach (var repo in repos)
+                // =====================================================================
+                // 1. [SMART-CLEANUP]: Xóa các repo rác (có trong DB nhưng không có trên GitHub đợt này)
+                // =====================================================================
+                var reposToDelete = existingRepos.Where(r => !incomingRepoUrls.Contains(r.GithubUrl)).ToList();
+                foreach (var repoToDelete in reposToDelete)
+                {
+                    await _portfolioRepo.DeleteGithubRepoAsync(repoToDelete);
+                }
+
+                int syncCount = 0;
+
+                // =====================================================================
+                // 2. [UPSERT]: Thêm mới hoặc Cập nhật giữ nguyên AI Summary
+                // =====================================================================
+                foreach (var repo in incomingRepos)
                 {
                     if (repo.Fork || repo.Size == 0 || repo.Archived) continue;
 
@@ -195,17 +249,22 @@ namespace Service_TechCompass.Services
                     var languages = await github.Repository.GetAllLanguages(repo.Owner.Login, repo.Name);
                     string actualTechStack = languages.Any() ? string.Join(", ", languages.Select(l => l.Name)) : string.Empty;
 
+                    // Tìm xem repo này đã có trong DB chưa
                     var dbRepo = existingRepos.FirstOrDefault(r => r.GithubUrl == repo.HtmlUrl);
+
                     if (dbRepo != null)
                     {
+                        // TRƯỜNG HỢP ĐÃ CÓ: Chỉ cập nhật data mới, KHÔNG CHẠM VÀO AiProjectSummary
+                        dbRepo.RepoName = repo.Name;
                         dbRepo.ReadmeContent = readmeContent;
                         dbRepo.ExtractedTechStack = actualTechStack;
                         dbRepo.SyncedAt = DateTime.Now;
-                        dbRepo.AiProjectSummary = null;
+
                         await _portfolioRepo.UpdateGithubRepoAsync(dbRepo);
                     }
                     else
                     {
+                        // TRƯỜNG HỢP MỚI: Insert bình thường
                         await _portfolioRepo.SaveGithubRepoAsync(new GithubRepository
                         {
                             RepoId = Guid.NewGuid(),
@@ -219,6 +278,7 @@ namespace Service_TechCompass.Services
                     }
                     syncCount++;
                 }
+
                 watch.Stop();
                 await _telemetryService.LogLearningHistoryAsync(studentId, null, "SYNC_GITHUB_SUCCESS", (int)watch.Elapsed.TotalSeconds, $"Đồng bộ {syncCount} repos");
                 return (200, $"Đồng bộ thành công {syncCount} dự án.");
@@ -230,7 +290,7 @@ namespace Service_TechCompass.Services
         }
         #endregion
 
-        #region 3. AI REPOSITORY ANALYSIS (Generate JSON)
+        #region 3. AI REPOSITORY ANALYSIS & CẬP NHẬT HỒ SƠ TỔNG THỂ
         public async Task<(int StatusCode, string Message)> AnalyzeRepoWithAiAsync(Guid repoId)
         {
             var repo = await _portfolioRepo.GetGithubRepoByIdAsync(repoId);
@@ -268,9 +328,22 @@ Hãy phân tích và trả về DUY NHẤT một chuỗi JSON hợp lệ với c
                 repo.AiProjectSummary = aiResponse;
                 await _portfolioRepo.UpdateGithubRepoAsync(repo);
 
-                await _hubContext.Clients.All.SendAsync("AnalysisCompleted");
-            }
+                // =========================================================================
+                // [LOGIC MỚI]: CHUỖI COMBO - TÍNH TOÁN LẠI ĐIỂM SỐ & LỘ TRÌNH NGAY LẬP TỨC
+                // =========================================================================
+                var portfolio = await _portfolioRepo.GetPortfolioByIdAsync(repo.PortfolioId);
+                if (portfolio != null)
+                {
+                    await EvaluateRoleSuitabilityAsync(portfolio.StudentId, portfolio.PortfolioId);
+                    await GenerateEPortfolioSummaryAsync(portfolio.StudentId, portfolio.PortfolioId);
 
+                    await _hubContext.Clients.All.SendAsync("AnalysisCompleted", portfolio.StudentId);
+                }
+                else
+                {
+                    await _hubContext.Clients.All.SendAsync("AnalysisCompleted", Guid.Empty);
+                }
+            }
             return (200, "Phân tích AI hoàn tất.");
         }
         #endregion

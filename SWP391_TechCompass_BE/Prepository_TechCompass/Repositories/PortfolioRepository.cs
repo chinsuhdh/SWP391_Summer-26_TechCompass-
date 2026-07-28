@@ -1,4 +1,5 @@
-﻿using System;
+// Repository_TechCompass/Repositories/PortfolioRepository.cs
+using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass.Interfaces;
@@ -15,12 +16,31 @@ namespace Repository_TechCompass.Repositories
             _context = context;
         }
 
-        public async Task<bool> SyncGithubReposAsync(Guid portfolioId, string githubUsername)
+        // [SECURITY-FIX]: GetStudentByIdAsync — đọc hồ sơ sinh viên để lấy GithubUsername đã đăng ký
+        public async Task<Student?> GetStudentByIdAsync(Guid studentId)
         {
-            // Chuyển toàn bộ logic đồng bộ GitHub từ Service sang đây (để tách tầng Repository)
-            // Hoặc nếu bạn muốn để ở Service thì sửa lại Interface cho khớp.
-            // Cách tốt nhất là để ở đây để đúng kiến trúc Repository Pattern.
-            return true;
+            return await _context.Students
+                .FirstOrDefaultAsync(s => s.StudentId == studentId);
+        }
+
+        // [SECURITY-FIX]: UpdateStudentAsync — lưu GithubUsername vào hồ sơ sinh viên lần đầu sync
+        public async Task UpdateStudentAsync(Student student)
+        {
+            _context.Students.Update(student);
+            await _context.SaveChangesAsync();
+        }
+
+        // [SECURITY-FIX]: DeleteAllReposByPortfolioIdAsync — xóa sạch repos cũ trước khi sync lại
+        public async Task DeleteAllReposByPortfolioIdAsync(Guid portfolioId)
+        {
+            var repos = await _context.GithubRepositories
+                .Where(r => r.PortfolioId == portfolioId)
+                .ToListAsync();
+            if (repos.Any())
+            {
+                _context.GithubRepositories.RemoveRange(repos);
+                await _context.SaveChangesAsync();
+            }
         }
 
         public async Task<EPortfolio?> GetPortfolioByStudentIdAsync(Guid studentId)
@@ -105,6 +125,20 @@ namespace Repository_TechCompass.Repositories
             {
                 return false; // Có thể log exception ở đây nếu cần
             }
+        }
+
+        public async Task DeleteGithubRepoAsync(GithubRepository repo)
+        {
+            _context.GithubRepositories.Remove(repo);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<bool> IsGithubUsernameTakenAsync(string githubUsername)
+        {
+            // So sánh không phân biệt hoa thường
+            return await _context.Students.AnyAsync(s =>
+                s.GithubUsername != null &&
+                s.GithubUsername.ToLower() == githubUsername.ToLower());
         }
     }
 }

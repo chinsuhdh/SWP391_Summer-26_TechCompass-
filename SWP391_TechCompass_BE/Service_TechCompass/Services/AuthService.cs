@@ -12,6 +12,9 @@ using Service_TechCompass.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace Service_TechCompass.Services
 {
@@ -57,7 +60,6 @@ namespace Service_TechCompass.Services
             _userRepo.AddUser(newUser);
 
             // 4. Khởi tạo hồ sơ Student mở rộng (Bảng con)
-            // Đã xóa bỏ phần khai báo dư và sinh thêm StudentCode ngẫu nhiên để chặn lỗi UNIQUE trùng NULL
             var newStudent = new Student
             {
                 StudentId = Guid.NewGuid(),
@@ -219,6 +221,132 @@ namespace Service_TechCompass.Services
             catch (InvalidJwtException)
             {
                 return (400, "Token Google đã hết hạn hoặc bị giả mạo.", string.Empty);
+            }
+            catch (Exception ex)
+            {
+                return (500, $"Lỗi hệ thống: {ex.Message}", string.Empty);
+            }
+        }
+
+        // =========================================================================================
+        // [BẢO MẬT TUYỆT ĐỐI]: ĐĂNG NHẬP VÀ LIÊN KẾT BẰNG GITHUB OAUTH
+        // =========================================================================================
+        public async Task<(int StatusCode, string Message, string Token)> GithubLoginAsync(GithubLoginDto request)
+        {
+            try
+            {
+                var githubConfig = _config.GetSection("GithubOAuth");
+                string clientId = githubConfig["ClientId"]!;
+                string clientSecret = githubConfig["ClientSecret"]!;
+
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                var tokenRequest = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    {"client_id", clientId},
+                    {"client_secret", clientSecret},
+                    {"code", request.Code},
+                    {"redirect_uri", "http://localhost:5173/login"}
+                });
+
+                var tokenResponse = await httpClient.PostAsync("https://github.com/login/oauth/access_token", tokenRequest);
+                var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
+                var tokenDoc = JsonDocument.Parse(tokenJson);
+
+                if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenElement))
+                {
+                    return (401, "Xác thực GitHub thất bại. Không lấy được quyền truy cập.", string.Empty);
+                }
+
+                string accessToken = accessTokenElement.GetString()!;
+
+                var userRequest = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user");
+                userRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                userRequest.Headers.UserAgent.Add(new ProductInfoHeaderValue("TechCompassApp", "1.0"));
+
+                var userResponse = await httpClient.SendAsync(userRequest);
+                var userJson = await userResponse.Content.ReadAsStringAsync();
+                var userDoc = JsonDocument.Parse(userJson);
+
+                string githubUsername = userDoc.RootElement.GetProperty("login").GetString()!;
+                string name = userDoc.RootElement.TryGetProperty("name", out var nameProp) && nameProp.ValueKind != JsonValueKind.Null
+                              ? nameProp.GetString()! : githubUsername;
+
+
+                var emailRequest = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user/emails");
+                emailRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                emailRequest.Headers.UserAgent.Add(new ProductInfoHeaderValue("TechCompassApp", "1.0"));
+
+                var emailResponse = await httpClient.SendAsync(emailRequest);
+                var emailJson = await emailResponse.Content.ReadAsStringAsync();
+                var emailDoc = JsonDocument.Parse(emailJson);
+
+                string realEmail = null;
+
+                foreach (var element in emailDoc.RootElement.EnumerateArray())
+                {
+                    if (element.GetProperty("primary").GetBoolean() && element.GetProperty("verified").GetBoolean())
+                    {
+                        realEmail = element.GetProperty("email").GetString();
+                        break;
+                    }
+                }
+
+                string email = realEmail ?? $"{githubUsername}@users.noreply.github.com";
+                // ---------------------------------------------------------
+
+                var user = _userRepo.GetUserByEmail(email);
+
+
+                // 3. Nếu chưa có tài khoản -> Tự tạo tài khoản & Gắn chặt GithubUsername
+                if (user == null)
+                {
+                    user = new User
+                    {
+                        UserId = Guid.NewGuid(),
+                        Email = email,
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Random pass
+                        Provider = "GitHub",
+                        IsActive = true, // Trust GitHub OAuth
+                        CreatedAt = DateTime.Now,
+                        RoleId = 2,
+                    };
+                    _userRepo.AddUser(user);
+
+                    var newStudent = new Student
+                    {
+                        StudentId = Guid.NewGuid(),
+                        UserId = user.UserId,
+                        FullName = name,
+                        UpdatedAt = DateTime.Now,
+                        StudentCode = "SE" + new Random().Next(100000, 999999).ToString(),
+                        GithubUsername = githubUsername // <--- BẢO MẬT: Lấy trực tiếp từ hệ thống GitHub
+                    };
+                    _userRepo.AddStudent(newStudent);
+                    _userRepo.SaveChanges();
+                }
+                else
+                {
+                    // Nếu đã có tài khoản -> Cập nhật trạng thái và gắn GithubUsername nếu chưa có
+                    if (user.IsActive == false)
+                    {
+                        user.IsActive = true;
+                        user.OtpCode = null;
+                        user.OtpExpiry = null;
+                    }
+
+                    var student = _userRepo.GetStudentByUserId(user.UserId);
+                    if (student != null && string.IsNullOrEmpty(student.GithubUsername))
+                    {
+                        student.GithubUsername = githubUsername; // <--- TỰ ĐỘNG GẮN TÊN CHÍNH CHỦ VÀO HỒ SƠ
+                        student.UpdatedAt = DateTime.Now;
+                    }
+                    _userRepo.SaveChanges();
+                }
+
+                var token = GenerateJwtToken(user);
+                return (200, "Đăng nhập bằng GitHub thành công!", token);
             }
             catch (Exception ex)
             {

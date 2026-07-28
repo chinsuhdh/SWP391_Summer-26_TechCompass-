@@ -48,6 +48,14 @@ namespace API_TechCompass.Controllers
             return Ok(new { token = result.Token, message = result.Message });
         }
 
+        [HttpPost("github-login")]
+        public async Task<IActionResult> GithubLogin([FromBody] GithubLoginDto request)
+        {
+            var result = await _authService.GithubLoginAsync(request);
+            if (result.StatusCode != 200) return StatusCode(result.StatusCode, new { message = result.Message });
+            return Ok(new { token = result.Token, message = result.Message });
+        }
+
         [HttpPost("logout")]
         public IActionResult Logout()
         {

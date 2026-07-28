@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -512,6 +512,11 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
+            // [SECURITY-FIX]: Map cột github_username — dùng để xác thực chủ sở hữu khi sync
+            entity.Property(e => e.GithubUsername)
+                .HasMaxLength(100)
+                .IsUnicode(false)
+                .HasColumnName("github_username");
 
             entity.HasOne(d => d.TargetRole).WithMany(p => p.Students)
                 .HasForeignKey(d => d.TargetRoleId)

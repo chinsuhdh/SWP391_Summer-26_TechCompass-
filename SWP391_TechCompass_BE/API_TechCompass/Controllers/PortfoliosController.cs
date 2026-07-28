@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Repository_TechCompass;
@@ -48,15 +48,20 @@ namespace API_TechCompass.Controllers
             return Ok(new { message = "Tạo URL thành công", url = url });
         }
 
-        // Task 46, 47, 48: Đồng bộ GitHub
-        [HttpPost("{studentId}/sync-github")]
-        public IActionResult SyncGithub(Guid studentId, [FromBody] SyncGithubRequestDto request)
+        // Task 46, 47, 48: Đồng bộ GitHub — studentId lấy từ JWT, không từ URL
+        [HttpPost("sync-github")]
+        [Authorize] // [SECURITY-FIX]: Bắt buộc đăng nhập
+        public IActionResult SyncGithub([FromBody] SyncGithubRequestDto request)
         {
             if (string.IsNullOrWhiteSpace(request.GithubUsername))
                 return BadRequest(new { message = "Username GitHub không được để trống." });
 
-            // REFACTOR: Gọi thẳng Master Pipeline thay vì chỉ Sync. 
-            // Hệ thống sẽ tự động Sync -> Analyze Repo -> Evaluate Suitability -> Build Summary
+            // [SECURITY-FIX]: Lấy studentId từ JWT claim — không tin tưởng URL input
+            // Student claim "StudentId" được ghi vào token lúc đăng nhập bởi AuthService
+            var studentIdClaim = User.FindFirstValue("StudentId");
+            if (string.IsNullOrEmpty(studentIdClaim) || !Guid.TryParse(studentIdClaim, out Guid studentId))
+                return Unauthorized(new { message = "Không xác định được danh tính sinh viên từ Token." });
+
             _backgroundJobClient.Enqueue<IPortfolioService>(service =>
                 service.ProcessFullGithubPipelineAsync(studentId, request.GithubUsername));
 

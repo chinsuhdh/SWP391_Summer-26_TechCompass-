@@ -35,6 +35,8 @@ namespace Repository_TechCompass.Interfaces
         bool EmailExists(string email);
         void AddUser(User user);
         void AddStudent(Student student);
+
+        bool IsStudentCodeExists(string studentCode, Guid currentStudentId);
         void SaveChanges();
     }
 }

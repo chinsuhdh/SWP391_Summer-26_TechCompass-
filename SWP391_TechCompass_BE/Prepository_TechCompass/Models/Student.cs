@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Repository_TechCompass.Models;
@@ -16,6 +16,13 @@ public partial class Student
     public int? TargetRoleId { get; set; }
 
     public string? LatentTalentSummary { get; set; }
+
+    /// <summary>
+    /// GitHub username đã được sinh viên đăng ký trong hồ sơ.
+    /// Đây là nguồn xác thực chủ sở hữu duy nhất phía server.
+    /// Chỉ được cập nhật qua UpdateProfile — không được truyền vào trực tiếp lúc sync.
+    /// </summary>
+    public string? GithubUsername { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
 

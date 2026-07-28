@@ -1,4 +1,5 @@
-﻿using Service_TechCompass.DTOs;
+﻿// src/Service_TechCompass/Services/IAuthService.cs
+using Service_TechCompass.DTOs;
 
 namespace Service_TechCompass.Services
 {
@@ -11,5 +12,8 @@ namespace Service_TechCompass.Services
         (int StatusCode, string Message) ResetPassword(VerifyOtpAndResetPasswordDto request);
 
         Task<(int StatusCode, string Message, string Token)> GoogleLoginAsync(GoogleLoginDto request);
+
+        // BỔ SUNG: Endpoint xử lý OAuth GitHub
+        Task<(int StatusCode, string Message, string Token)> GithubLoginAsync(GithubLoginDto request);
     }
 }
