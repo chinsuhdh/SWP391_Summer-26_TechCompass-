@@ -18,6 +18,7 @@ namespace Service_TechCompass.Services
         {
             _context = context;
         }
+
         // 1. LẤY DANH SÁCH NGƯỜI DÙNG
         public async Task<(int StatusCode, string Message, List<AdminUserDetailDto>? Data)> GetAllUsersAsync()
         {
@@ -30,15 +31,16 @@ namespace Service_TechCompass.Services
                 RoleId = u.RoleId,
                 CreatedAt = u.CreatedAt,
 
-                // FIX LỖI "UNNAMED USER": Trích xuất FullName từ các bảng con dựa vào RoleId
+                // Trích xuất FullName từ các bảng con dựa vào RoleId
                 FullName = u.RoleId == 2 ? _context.Students.Where(s => s.UserId == u.UserId).Select(s => s.FullName).FirstOrDefault() :
                            u.RoleId == 3 ? _context.Mentors.Where(m => m.UserId == u.UserId).Select(m => m.FullName).FirstOrDefault() :
                            u.RoleId == 4 ? _context.Counselors.Where(c => c.UserId == u.UserId).Select(c => c.FullName).FirstOrDefault() :
-                           "System Admin" // Nếu là Role 1 (Admin) thì gán tên mặc định
+                           "System Admin"
             }).ToListAsync();
 
             return (200, "Lấy danh sách thành công", users);
         }
+
         // 2. LẤY CHI TIẾT NGƯỜI DÙNG THEO ID
         public async Task<(int StatusCode, string Message, AdminUserDetailDto? Data)> GetUserByIdAsync(Guid userId)
         {
@@ -188,7 +190,6 @@ namespace Service_TechCompass.Services
                 var mentor = await _context.Mentors.FirstOrDefaultAsync(m => m.UserId == userId);
                 if (mentor != null)
                 {
-                    // ĐÃ MỞ KHÓA GÁN FULLNAME CHO MENTOR
                     mentor.FullName = request.FullName ?? mentor.FullName;
                     mentor.CurrentCompany = request.CurrentCompany ?? mentor.CurrentCompany;
                     mentor.ExpertiseTags = request.ExpertiseTags ?? mentor.ExpertiseTags;
@@ -211,34 +212,18 @@ namespace Service_TechCompass.Services
             return (200, "Cập nhật toàn diện thông tin người dùng thành công");
         }
 
-        // 5. XÓA NGƯỜI DÙNG
+        // 5. XÓA NGƯỜI DÙNG (Giữ hàm này để tuân thủ IAdminUserService nhưng chuyển thành Soft Delete)
         public async Task<(int StatusCode, string Message)> DeleteUserAsync(Guid userId)
         {
-            try
-            {
-                var user = await _context.Users.FindAsync(userId);
-                if (user == null) return (404, "Không tìm thấy người dùng");
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) return (404, "Không tìm thấy người dùng");
 
-                var studentRecord = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
-                if (studentRecord != null) _context.Students.Remove(studentRecord);
+            // Chuyển từ "Hard Delete" sang "Soft Delete" (Chỉ khóa tài khoản)
+            user.IsActive = false;
+            _context.Users.Update(user);
+            await _context.SaveChangesAsync();
 
-                var mentorRecord = await _context.Mentors.FirstOrDefaultAsync(m => m.UserId == userId);
-                if (mentorRecord != null) _context.Mentors.Remove(mentorRecord);
-
-                var counselorRecord = await _context.Counselors.FirstOrDefaultAsync(c => c.UserId == userId);
-                if (counselorRecord != null) _context.Counselors.Remove(counselorRecord);
-
-                await _context.SaveChangesAsync();
-
-                _context.Users.Remove(user);
-                await _context.SaveChangesAsync();
-
-                return (200, "Xóa thành công");
-            }
-            catch (Exception ex)
-            {
-                return (500, $"Lỗi hệ thống khi xóa: {ex.InnerException?.Message ?? ex.Message}");
-            }
+            return (200, "Tài khoản đã được khóa an toàn (Không xóa dữ liệu).");
         }
     }
 }
