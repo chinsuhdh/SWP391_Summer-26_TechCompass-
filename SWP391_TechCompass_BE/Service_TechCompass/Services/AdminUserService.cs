@@ -18,7 +18,6 @@ namespace Service_TechCompass.Services
         {
             _context = context;
         }
-
         // 1. LẤY DANH SÁCH NGƯỜI DÙNG
         public async Task<(int StatusCode, string Message, List<AdminUserDetailDto>? Data)> GetAllUsersAsync()
         {
@@ -29,12 +28,17 @@ namespace Service_TechCompass.Services
                 Provider = u.Provider ?? "Local",
                 IsActive = u.IsActive ?? true,
                 RoleId = u.RoleId,
-                CreatedAt = u.CreatedAt
+                CreatedAt = u.CreatedAt,
+
+                // FIX LỖI "UNNAMED USER": Trích xuất FullName từ các bảng con dựa vào RoleId
+                FullName = u.RoleId == 2 ? _context.Students.Where(s => s.UserId == u.UserId).Select(s => s.FullName).FirstOrDefault() :
+                           u.RoleId == 3 ? _context.Mentors.Where(m => m.UserId == u.UserId).Select(m => m.FullName).FirstOrDefault() :
+                           u.RoleId == 4 ? _context.Counselors.Where(c => c.UserId == u.UserId).Select(c => c.FullName).FirstOrDefault() :
+                           "System Admin" // Nếu là Role 1 (Admin) thì gán tên mặc định
             }).ToListAsync();
 
             return (200, "Lấy danh sách thành công", users);
         }
-
         // 2. LẤY CHI TIẾT NGƯỜI DÙNG THEO ID
         public async Task<(int StatusCode, string Message, AdminUserDetailDto? Data)> GetUserByIdAsync(Guid userId)
         {
