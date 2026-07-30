@@ -23,15 +23,15 @@ namespace Service_TechCompass.Interfaces
         Task<(int StatusCode, string Message)> DeleteSkillNodeAsync(int id);
 
         // --- LEARNING RESOURCE CRUD ---
-        // FIX: Đã xóa hàm GetAllLearningResourcesAsync() cũ trả về List để tránh nhập nhằng dữ liệu
+        // Hỗ trợ phân trang và lọc tìm kiếm cho hệ thống
+        Task<(int StatusCode, string Message, PagedResult<LearningResourceDto>? Data)> GetAllLearningResourcesAsync(int page = 1, int pageSize = 50, int? nodeId = null, string? searchTitle = null);
+
         Task<(int StatusCode, string Message, LearningResourceDto? Data)> GetLearningResourceByIdAsync(int id);
         Task<(int StatusCode, string Message)> CreateLearningResourceAsync(CreateUpdateLearningResourceDto request);
         Task<(int StatusCode, string Message)> UpdateLearningResourceAsync(int id, CreateUpdateLearningResourceDto request);
         Task<(int StatusCode, string Message)> DeleteLearningResourceAsync(int id);
 
+        // --- SYNC GITHUB ---
         Task<(int StatusCode, string Message)> SyncRoadmapFromGitHubAsync(string rawUrl, int targetRoleId);
-
-        // HÀM CHÍNH THỨC: Hỗ trợ phân trang và lọc tìm kiếm cho hệ thống
-        Task<(int StatusCode, string Message, PagedResult<LearningResourceDto>? Data)> GetAllLearningResourcesAsync(int page = 1, int pageSize = 50, int? nodeId = null, string searchTitle = null);
     }
 }

@@ -1,5 +1,4 @@
-﻿// Service_TechCompass/Services/AdminContentService.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -165,26 +164,25 @@ namespace Service_TechCompass.Services
 
         #region LEARNING RESOURCE CRUD
 
-        // Đã cập nhật: Hỗ trợ Phân trang và Lọc
+        // Đã cập nhật: Hỗ trợ Phân trang, Lọc theo Node và Tìm kiếm theo Title (searchTitle)
         public Task<(int StatusCode, string Message, PagedResult<LearningResourceDto>? Data)> GetAllLearningResourcesAsync(
             int page = 1,
             int pageSize = 50,
             int? nodeId = null,
             string searchTitle = null)
         {
-            // Ép kiểu IQueryable để thao tác bộ lọc trước khi kéo data về RAM (nếu repo hỗ trợ IQueryable)
+            // Ép kiểu IQueryable để thao tác bộ lọc trước khi kéo data về RAM
             var query = _contentRepo.GetAllLearningResources().AsQueryable();
 
-            // Lọc theo NodeId
+            // 1. Lọc theo NodeId (nếu có)
             if (nodeId.HasValue)
             {
                 query = query.Where(x => x.SkillNodeId == nodeId.Value);
             }
 
-            // Lọc theo Title (Search)
+            // 2. Lọc theo Title (Search - LIKE %searchTitle%)
             if (!string.IsNullOrWhiteSpace(searchTitle))
             {
-                // Note: EF Core sẽ dịch Contains sang LIKE '%searchTitle%' trong SQL Server
                 query = query.Where(x => x.Title.Contains(searchTitle));
             }
 
@@ -200,6 +198,8 @@ namespace Service_TechCompass.Services
                 {
                     ResourceId = x.ResourceId,
                     SkillNodeId = x.SkillNodeId,
+                    // Map thêm tên của kỹ năng vào DTO
+                    SkillNodeName = x.SkillNode != null ? x.SkillNode.NodeName : "",
                     Title = x.Title,
                     Url = x.Url,
                     ResourceType = x.ResourceType,

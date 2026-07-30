@@ -40,6 +40,8 @@ namespace Service_TechCompass.DTOs
         public string? ResourceType { get; set; }
         public string? Provider { get; set; }
         public string? DifficultyLevel { get; set; }
+
+        public string? SkillNodeName { get; set; }
     }
 
     // --- DTO CHO CREATE / UPDATE ---
