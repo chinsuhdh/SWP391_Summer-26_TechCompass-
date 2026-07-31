@@ -12,5 +12,7 @@ namespace Service_TechCompass.Interfaces
         Task<(int StatusCode, string Message, object? Data)> GetSystemHealthAsync();
 
         Task<(int StatusCode, string Message, object? Data)> GetAiSummaryAsync();
+        Task<(int StatusCode, string Message, object Data)> GetAiMonitorLogsAsync();
+
     }
 }

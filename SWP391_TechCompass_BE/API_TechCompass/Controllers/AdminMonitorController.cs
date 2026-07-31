@@ -98,5 +98,22 @@ namespace API_TechCompass.Controllers
 
             return Ok(new { message = result.Message, data = result.Data });
         }
+
+        // =========================================================
+        // HÀM MỚI THÊM: LẤY DỮ LIỆU GIÁM SÁT CHI PHÍ VÀ CHẤT LƯỢNG AI
+        // =========================================================
+        [HttpGet("ai-logs")]
+        public async Task<IActionResult> GetAiLogs()
+        {
+            if (!IsAdminUser()) return Forbid(); // Kế thừa check bảo mật của Admin
+
+            var result = await _monitorService.GetAiMonitorLogsAsync();
+
+            if (result.StatusCode != 200)
+                return StatusCode(result.StatusCode, new { message = result.Message });
+
+            // Frontend đang mong đợi object trả về trực tiếp Data nên dùng Ok(result.Data)
+            return Ok(result.Data);
+        }
     }
 }

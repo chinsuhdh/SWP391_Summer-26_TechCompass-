@@ -39,6 +39,7 @@ namespace Service_TechCompass.Services
             _geminiService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
         }
 
+        // 1. Hàm cũ: Lấy danh sách AI Recommendations
         public Task<(int StatusCode, string Message, List<AiRecommendationDto>? Data)> GetAllAiRecommendationsAsync()
         {
             var data = _userRepo.GetAllAiRecommendations().Select(x => new AiRecommendationDto
@@ -53,6 +54,7 @@ namespace Service_TechCompass.Services
             return Task.FromResult<(int, string, List<AiRecommendationDto>?)>((200, "Lấy dữ liệu AI Recommendations thành công.", data));
         }
 
+        // 2. Hàm cũ: Lấy System Logs
         public async Task<(int StatusCode, string Message, List<SystemLogDto>? Data)> GetSystemLogsAsync()
         {
             var dbLogs = await _context.LearningHistories
@@ -61,16 +63,11 @@ namespace Service_TechCompass.Services
                 .Select(x => new SystemLogDto
                 {
                     LogId = x.HistoryId,
-                    // Phân loại LogLevel để React tô màu (Xanh/Đỏ/Vàng)
                     LogLevel = x.ActionType.Contains("ERROR") || x.ActionType.Contains("FAIL") ? "ERROR"
                              : x.ActionType.Contains("SYSTEM_JOB") || x.ActionType.Contains("AI_REPO") ? "INFO"
                              : "INFO",
-
-                    // Message gốc (sẽ bị React ghi đè bằng message tiếng Việt đẹp hơn dựa vào ActionType)
                     Message = $"Tiến trình {x.ActionType} đã thực thi.",
                     CreatedAt = x.RecordedAt ?? DateTime.Now,
-
-                    // Bổ sung 3 trường mới để UI hiển thị số lượng và ngày giờ thật
                     ActionType = x.ActionType,
                     DurationSeconds = x.DurationSeconds,
                     RecordedAt = x.RecordedAt
@@ -80,6 +77,7 @@ namespace Service_TechCompass.Services
             return (200, "Lấy danh sách System Logs thành công.", dbLogs);
         }
 
+        // 3. Hàm cũ: Lấy Health Check của hệ thống
         public async Task<(int StatusCode, string Message, object? Data)> GetSystemHealthAsync()
         {
             bool isDbHealthy = false;
@@ -117,6 +115,7 @@ namespace Service_TechCompass.Services
             return (200, "Lấy System Health thành công.", healthData);
         }
 
+        // 4. Hàm cũ: Tạo Summary bằng AI
         public async Task<(int StatusCode, string Message, object? Data)> GetAiSummaryAsync()
         {
             var latestDate = await _context.TrendAnalyses.MaxAsync(t => (DateOnly?)t.AnalyzedDate);
@@ -161,6 +160,44 @@ namespace Service_TechCompass.Services
             }
 
             return (200, "AI tạo tóm tắt thành công.", new { summary = aiResponseText });
+        }
+
+        // 5. HÀM MỚI BỔ SUNG: Lấy dữ liệu cho trang Admin Giám sát AI (Tokens & Chat History)
+        public async Task<(int StatusCode, string Message, object Data)> GetAiMonitorLogsAsync()
+        {
+            try
+            {
+                // Dùng Mock Data chuẩn để trả về Giao diện. 
+                // Sau này bạn có thể Join với bảng User/ChatHistory thật nếu cần.
+                var mockLogs = new List<AiChatLogDto>
+                {
+                    new AiChatLogDto { LogId = Guid.NewGuid(), StudentName = "Bùi Ngọc Tâm", StudentEmail = "tam@fpt.edu.vn", UserPrompt = "Em muốn học Backend thì bắt đầu từ đâu?", AiResponse = "Chào bạn, để trở thành Backend Dev, bạn cần nắm vững C# cơ bản, SQL Server, và ASP.NET Core...", TokensUsed = 450, CreatedAt = DateTime.Now.AddMinutes(-10), AiModel = "gemini-1.5-pro" },
+                    new AiChatLogDto { LogId = Guid.NewGuid(), StudentName = "Huỳnh Công Hòa", StudentEmail = "hoa@fpt.edu.vn", UserPrompt = "Giải thích lỗi Foreign Key giúp em", AiResponse = "Lỗi Foreign Key xảy ra khi bạn cố chèn một giá trị vào bảng con nhưng giá trị đó không tồn tại ở bảng cha...", TokensUsed = 320, CreatedAt = DateTime.Now.AddHours(-2), AiModel = "gemini-1.5-pro" },
+                    new AiChatLogDto { LogId = Guid.NewGuid(), StudentName = "Nguyễn Tại Hậu", StudentEmail = "hau@fpt.edu.vn", UserPrompt = "Lộ trình học ReactJS 2026?", AiResponse = "Lộ trình ReactJS 2026: 1. HTML/CSS/JS. 2. React Hooks. 3. Next.js...", TokensUsed = 512, CreatedAt = DateTime.Now.AddDays(-1), AiModel = "gpt-4o-mini" }
+                };
+
+                // Tính toán thống kê Token
+                var stats = new AiStatsDto
+                {
+                    TotalRequests = mockLogs.Count,
+                    TotalTokensUsed = 1282,
+                    EstimatedCostUsd = Math.Round((1282 / 1000.0) * 0.0015, 5)
+                };
+
+                var dashboardData = new AdminAiMonitorDashboardDto
+                {
+                    Stats = stats,
+                    ChatLogs = mockLogs
+                };
+
+                return (200, "Lấy dữ liệu giám sát AI thành công", dashboardData);
+            }
+            catch (Exception ex)
+            {
+                // Task<(int, string, object)> yêu cầu Data không thể null tuỳ ý nếu không cho phép nullable object.
+                // Trả về chuỗi rỗng hoặc object rỗng để an toàn.
+                return (500, $"Lỗi hệ thống: {ex.Message}", new { });
+            }
         }
     }
 }
