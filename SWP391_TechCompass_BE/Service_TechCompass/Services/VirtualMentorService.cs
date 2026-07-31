@@ -16,10 +16,18 @@ namespace Service_TechCompass.Services
         private readonly IPracticeWorkspaceRepository _repository;
         private readonly IChatCompletionService _chatCompletionService;
 
-        public VirtualMentorService(IPracticeWorkspaceRepository repository, Kernel kernel)
+        // 1. ĐỔI SANG DÙNG IStudentRepository
+        private readonly IStudentRepository _studentRepo;
+
+        // 2. Tiêm IStudentRepository qua Constructor
+        public VirtualMentorService(
+            IPracticeWorkspaceRepository repository,
+            Kernel kernel,
+            IStudentRepository studentRepo)
         {
             _repository = repository;
             _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
+            _studentRepo = studentRepo;
         }
 
         public async Task<List<ChatSessionListDto>> GetUserSessionsAsync(Guid studentId)
@@ -62,15 +70,36 @@ namespace Service_TechCompass.Services
             // 3. Khởi tạo Semantic Kernel Chat History
             var chatHistory = new ChatHistory();
 
-            string systemPrompt = @"Bạn là một Cố vấn Hướng nghiệp IT cấp cao (Senior Career Mentor). 
-Nhiệm vụ của bạn là tư vấn cho sinh viên ngành Software Engineering. 
-Dựa trên thông tin họ cung cấp, hãy chỉ ra các kỹ năng còn thiếu (Skill Gap) so với yêu cầu thị trường 
-và gợi ý lộ trình học tập (Roadmap) thực tế. 
-Nguyên tắc: Chỉ tư vấn định hướng, tuyệt đối KHÔNG viết code hay giải bài tập giúp sinh viên.";
+            // ---------------------------------------------------------
+            // 🔴 BƯỚC QUAN TRỌNG: Lấy dữ liệu ngữ cảnh bằng IStudentRepository
+            // ---------------------------------------------------------
+            // Dùng hàm bất đồng bộ có sẵn trong IStudentRepository
+            var student = await _studentRepo.GetStudentByIdAsync(studentId);
+
+            // Lấy thông tin cá nhân (Bắt lỗi null nếu sinh viên chưa có dữ liệu)
+            string studentName = student?.FullName ?? "Sinh viên ẩn danh";
+
+            // Lấy tên vai trò nghề nghiệp (Ví dụ: Backend Developer) thay vì lấy object
+            string targetRole = student?.TargetRole?.RoleName ?? "Chưa xác định";
+            string currentSkills = "Chưa có dữ liệu"; // Bạn có thể bổ sung truy vấn kỹ năng sau
+
+            // Xây dựng System Prompt Động
+            string systemPrompt = $@"Bạn là một Cố vấn Hướng nghiệp IT cấp cao (Senior Career Mentor) thuộc nền tảng TechCompass.
+Nhiệm vụ của bạn là tư vấn cá nhân hóa cho sinh viên dựa trên hồ sơ thực tế của họ.
+
+THÔNG TIN HỒ SƠ CỦA SINH VIÊN HIỆN TẠI:
+- Tên sinh viên: {studentName}
+- Mục tiêu nghề nghiệp hướng tới: {targetRole}
+- Các kỹ năng đang có: {currentSkills}
+
+NGUYÊN TẮC TƯ VẤN:
+1. Luôn xưng hô thân thiện và gọi tên sinh viên ({studentName}) trong câu trả lời nếu phù hợp.
+2. Dựa trên 'Mục tiêu nghề nghiệp' và 'Kỹ năng đang có' ở trên, hãy phân tích những kỹ năng còn thiếu (Skill Gap) so với yêu cầu thị trường hiện nay.
+3. Chỉ tư vấn định hướng, tuyệt đối KHÔNG viết code hay giải bài tập giúp sinh viên. Nếu sinh viên hỏi sai chủ đề, hãy từ chối khéo léo.";
 
             chatHistory.AddSystemMessage(systemPrompt);
 
-            // 4. Nạp lịch sử chat cũ vào Prompt
+            // 4. Nạp lịch sử chat cũ vào Prompt (10 tin nhắn gần nhất để AI nhớ luồng trò chuyện)
             var previousMessages = await _repository.GetRecentMessagesAsync(currentSessionId, 10);
 
             foreach (var msg in previousMessages.OrderBy(m => m.SentAt))
@@ -81,6 +110,7 @@ Nguyên tắc: Chỉ tư vấn định hướng, tuyệt đối KHÔNG viết co
                     chatHistory.AddAssistantMessage(msg.MessageText);
             }
 
+            // Đưa tin nhắn mới nhất của sinh viên vào
             chatHistory.AddUserMessage(userMessage);
 
             // 5. Gọi Gemini API
@@ -92,10 +122,10 @@ Nguyên tắc: Chỉ tư vấn định hướng, tuyệt đối KHÔNG viết co
             }
             catch
             {
-                // Catch để tránh crash server nếu timeout
+                // Catch để tránh crash server nếu timeout từ API Google
             }
 
-            // 6. Lưu câu trả lời của AI
+            // 6. Lưu câu trả lời của AI vào Database
             await _repository.SaveChatMessageAsync(new ChatMessage
             {
                 MessageId = Guid.NewGuid(),
