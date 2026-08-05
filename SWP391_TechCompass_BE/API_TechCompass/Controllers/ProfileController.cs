@@ -6,6 +6,10 @@ using Repository_TechCompass;
 using Service_TechCompass.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Service_TechCompass.Interfaces;
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace API_TechCompass.Controllers
 {
@@ -26,7 +30,8 @@ namespace API_TechCompass.Controllers
         {
             // ASP.NET Core mặc định map "sub" thành ClaimTypes.NameIdentifier
             var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                           ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+                           ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                           ?? User.FindFirstValue("userId");
             // Thêm dòng fallback ở trên để đảm bảo bắt được mọi trường hợp
 
             return string.IsNullOrEmpty(userIdClaim) ? Guid.Empty : Guid.Parse(userIdClaim);
@@ -120,7 +125,6 @@ namespace API_TechCompass.Controllers
             if (userId == Guid.Empty)
                 return Unauthorized(new { message = "Token không hợp lệ." });
 
-            // Gọi thẳng xuống Service
             var result = await _profileService.GetMyFeedbacksAsync(userId);
 
             if (result.StatusCode != 200)
@@ -128,8 +132,38 @@ namespace API_TechCompass.Controllers
                 return StatusCode(result.StatusCode, new { message = result.Message });
             }
 
-            // Trả về trực tiếp List Data để Frontend map luôn vào state (response.data)
             return Ok(result.Data);
+        }
+
+        // ==========================================
+        // THÊM MỚI: API LẤY CỐ VẤN CHO SINH VIÊN
+        // ==========================================
+        [HttpGet("my-counselor")]
+        public async Task<IActionResult> GetMyCounselor()
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (userId == Guid.Empty)
+                {
+                    return Unauthorized(new { Error = "Không tìm thấy thông tin xác thực." });
+                }
+
+                // Gọi hàm từ Service
+                var counselorInfo = await _profileService.GetMyCounselorAsync(userId);
+
+                if (counselorInfo == null)
+                {
+                    return NotFound(new { Error = "Không tìm thấy Cố vấn phụ trách cho sinh viên này." });
+                }
+
+                // Trả về JSON cho React (Có trường data bọc bên ngoài)
+                return Ok(new { data = counselorInfo, message = "Lấy thông tin Cố vấn thành công." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
         }
     }
 }

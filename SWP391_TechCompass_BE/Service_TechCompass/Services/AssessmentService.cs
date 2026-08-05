@@ -30,14 +30,16 @@ namespace Service_TechCompass.Services
         private readonly Swp391CareerRoadmapContext _context;
 
         public AssessmentService(
-            IAssessmentRepository repository,
-            HttpClient httpClient,
-            IConfiguration configuration,
-            Kernel kernel,
-            IQuizSyncService quizSyncService,
-            Swp391CareerRoadmapContext context)
+    IAssessmentRepository repository,
+    IUserRepository userRepo,      
+    HttpClient httpClient,
+    IConfiguration configuration,
+    Kernel kernel,
+    IQuizSyncService quizSyncService,
+    Swp391CareerRoadmapContext context)
         {
             _repository = repository;
+            _userRepo = userRepo;         
             _httpClient = httpClient;
             _configuration = configuration;
             _quizSyncService = quizSyncService;
@@ -309,45 +311,49 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
         // ==========================================
         public async Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission)
         {
-            var student = _userRepo.GetStudentByUserId(submission.StudentId);
-            if (student == null)
-            {
-                // In rõ ID mà ReactJS gửi lên để bạn biết nó đang truyền nhầm cái gì
-                throw new Exception($"Không tìm thấy sinh viên tương ứng với ID: {submission.StudentId}. Hãy kiểm tra lại Frontend đang truyền UserId hay StudentId.");
-            }
+            var student = _context.Students.FirstOrDefault(s =>
+                s.StudentId == submission.StudentId ||
+                s.UserId == submission.StudentId);
+
+            if (student == null) throw new Exception("Không tìm thấy sinh viên. ID gửi lên không khớp với hệ thống.");
+
             var session = new AssessmentSession
             {
                 SessionId = Guid.NewGuid(),
-                StudentId = student.StudentId,
-                // Cố gắng lấy Node hợp lệ. Nếu DB của bạn cho phép nullable, hãy dùng (int?)null
-                // Nếu bắt buộc phải có, hãy tạm gán ID của một kỹ năng mặc định (ví dụ: 1)
-                SkillNodeId = submission.SkillNodeId > 0 ? submission.SkillNodeId : 1,
-                // Gắn đúng loại bài Test để dễ phân biệt trong Database
-                AssessmentType = submission.SkillNodeId > 0 ? "TESTED" : "PLACEMENT_TEST",
-                TakenAt = DateTime.Now
+                StudentId = student.StudentId, 
+                SkillNodeId = submission.SkillNodeId,
+                AssessmentType = "TESTED",
+                TakenAt = DateTime.Now,
+                QuizDetails = new List<AssessmentQuizDetail>()
             };
 
-            var questionIds = submission.QuizAnswers.Select(a => a.QuestionId).ToList();
-            var dbQuestions = await _repository.GetQuestionsByIdsAsync(questionIds);
+            var questionIds = submission.QuizAnswers?.Select(a => a.QuestionId).ToList() ?? new List<int>();
+            var dbQuestions = await _repository.GetQuestionsByIdsAsync(questionIds) ?? new List<AssessmentQuestion>();
             int correctCount = 0;
 
-            foreach (var answer in submission.QuizAnswers)
+            if (submission.QuizAnswers != null && submission.QuizAnswers.Any())
             {
-                var matchedQuestion = dbQuestions.FirstOrDefault(q => q.QuestionId == answer.QuestionId);
-                bool isCorrect = matchedQuestion != null &&
-                                 matchedQuestion.CorrectAnswer.Equals(answer.SelectedOption, StringComparison.OrdinalIgnoreCase);
-
-                if (isCorrect) correctCount++;
-
-                session.QuizDetails.Add(new AssessmentQuizDetail
+                foreach (var answer in submission.QuizAnswers)
                 {
-                    Id = Guid.NewGuid(),
-                    SessionId = session.SessionId,
-                    QuestionId = answer.QuestionId,
-                    SelectedOption = answer.SelectedOption,
-                    IsCorrect = isCorrect
-                });
+                    var matchedQuestion = dbQuestions.FirstOrDefault(q => q.QuestionId == answer.QuestionId);
+
+             
+                    bool isCorrect = matchedQuestion != null &&
+                                     string.Equals(matchedQuestion.CorrectAnswer, answer.SelectedOption, StringComparison.OrdinalIgnoreCase);
+
+                    if (isCorrect) correctCount++;
+
+                    session.QuizDetails.Add(new AssessmentQuizDetail
+                    {
+                        Id = Guid.NewGuid(),
+                        SessionId = session.SessionId,
+                        QuestionId = answer.QuestionId,
+                        SelectedOption = answer.SelectedOption ?? "",
+                        IsCorrect = isCorrect
+                    });
+                }
             }
+
             session.TotalQuizScore = dbQuestions.Count > 0 ? (decimal)correctCount / dbQuestions.Count * 10 : 0;
 
             decimal executionScore = 0.0m;
@@ -360,8 +366,8 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                 string clientSecret = _configuration["JDoodleConfig:ClientSecret"];
                 string apiUrl = "https://api.jdoodle.com/v1/execute";
 
-                // MỞ RỘNG BỘ NGÔN NGỮ BẮT THEO TÊN CHUẨN CỦA FE & DB CHUYỂN XUỐNG
-                string jLanguage = submission.CodeSubmission.Language.ToLower() switch
+                string rawLanguage = submission.CodeSubmission.Language ?? "csharp";
+                string jLanguage = rawLanguage.ToLower() switch
                 {
                     "csharp" => "csharp",
                     "javascript" => "nodejs",
@@ -369,9 +375,9 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                     "java" => "java",
                     "c" => "c",
                     "cpp" => "cpp14",
-                    "sql" => "sql",      // Thêm hỗ trợ SQL
-                    "bash" => "bash",    // Thêm hỗ trợ Shell Script/Linux
-                    _ => throw new Exception($"Ngôn ngữ {submission.CodeSubmission.Language} chưa được hệ thống hỗ trợ chấm tự động.")
+                    "sql" => "sql",
+                    "bash" => "bash",
+                    _ => throw new Exception($"Ngôn ngữ {rawLanguage} chưa được hỗ trợ.")
                 };
 
                 string jVersion = jLanguage == "csharp" ? "4" : "0";
@@ -383,7 +389,7 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                     script = submission.CodeSubmission.SourceCode,
                     language = jLanguage,
                     versionIndex = jVersion,
-                    stdin = submission.CodeSubmission.Stdin
+                    stdin = submission.CodeSubmission.Stdin ?? ""
                 };
 
                 try
@@ -402,7 +408,8 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
                         }
                         else
                         {
-                            string actualOutput = root.TryGetProperty("output", out var outputEl) ? outputEl.GetString().Trim() : "";
+                            // FIX 2: Bọc giá trị trả về của GetString() để gọi .Trim() không bị NullReference
+                            string actualOutput = root.TryGetProperty("output", out var outputEl) ? (outputEl.GetString() ?? "").Trim() : "";
                             string expectedOutput = submission.CodeSubmission.ExpectedOutput?.Trim() ?? "";
 
                             string normalizedActual = actualOutput.Replace("\r\n", "\n");
@@ -442,16 +449,16 @@ Chỉ trả về nội dung nhận xét.";
 
                 chatHistory.AddUserMessage(prompt);
 
-                // ĐÃ SỬA: Chuyển thẳng sang dùng Gemini làm Reviewer chính thức
                 try
                 {
                     var response = await _geminiService.GetChatMessageContentAsync(chatHistory);
-                    aiFeedback = response.ToString();
+
+                    // FIX 3: Ngăn chặn Gemini trả về kết quả rỗng làm ứng dụng sập khi gọi ToString()
+                    aiFeedback = response?.Content ?? response?.ToString() ?? "Đã lưu kết quả nhưng không thể lấy nhận xét từ AI.";
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"\n[LỖI GEMINI CODE REVIEW]: {ex.Message}");
-                    // Fallback khi cả Gemini cũng sập (rất hiếm khi xảy ra)
                     aiFeedback = "Hệ thống AI đang bảo trì. Không thể đưa ra nhận xét code vào lúc này.";
                 }
 
@@ -460,14 +467,15 @@ Chỉ trả về nội dung nhận xét.";
                     Id = Guid.NewGuid(),
                     SessionId = session.SessionId,
                     SourceCode = submission.CodeSubmission.SourceCode,
-                    AiFeedback = string.IsNullOrWhiteSpace(aiFeedback) ? "Hệ thống AI hiện không thể phản hồi." : aiFeedback.Trim()
+                    // FIX 4: Trim an toàn
+                    AiFeedback = aiFeedback?.Trim() ?? string.Empty
                 };
             }
+
             session.TotalCodeScore = executionScore;
 
             return await _repository.SaveAssessmentSessionAsync(session);
         }
-
         public async Task<object?> GetMyLatestNodeResultAsync(Guid studentId, int skillNodeId)
         {
             var session = await _repository.GetLatestAssessmentSessionByNodeAsync(studentId, skillNodeId);

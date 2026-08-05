@@ -1,47 +1,55 @@
-﻿namespace Service_TechCompass.DTOs
+﻿using System;
+using System.Collections.Generic;
+
+namespace Service_TechCompass.DTOs
 {
-    // DTO thống kê số lượng sinh viên theo từng định hướng nghề nghiệp
-    public class StudentRoleStatDto
-    {
-        public int TargetRoleId { get; set; }
-        public string RoleName { get; set; } = string.Empty;
-        public int StudentCount { get; set; }
-    }
-
-    // DTO tổng hợp phân tích lỗ hổng kiến thức của toàn khóa (Cohort)
-    public class CohortSkillGapDto
-    {
-        public int SkillNodeId { get; set; }
-        public string SkillNodeName { get; set; } = string.Empty;
-        public int MissingStudentCount { get; set; } // Số lượng SV đang bị thiếu kỹ năng này
-        public double DeficiencyPercentage { get; set; } // Tỷ lệ % SV bị hụt trên tổng số SV
-    }
-
-    // DTO cho danh sách sinh viên kèm tiến độ (ĐÃ BỔ SUNG CÁC TRƯỜNG CÒN THIẾU)
+    // DTO cho hàm GetStudentsProgressAsync
     public class CounselorStudentDto
     {
         public Guid StudentId { get; set; }
         public string FullName { get; set; } = string.Empty;
-        public string StudentCode { get; set; } = string.Empty; // <-- BỔ SUNG
-        public string Email { get; set; } = string.Empty;       // <-- BỔ SUNG
+        public string Email { get; set; } = string.Empty;
+        public string StudentCode { get; set; } = string.Empty;
         public string TargetRoleName { get; set; } = string.Empty;
-        public double ProgressPercentage { get; set; }
-        public string AiScore { get; set; } = "N/A";            // <-- BỔ SUNG
+        public int ProgressPercentage { get; set; }
+        public int AiScore { get; set; }
     }
 
-    // DTO cho thống kê bài Assessment
+    // LƯU Ý: ĐÃ XÓA CLASS PagedResult<T> Ở ĐÂY ĐỂ TRÁNH TRÙNG LẶP
+
+    // DTO cho AssessmentStats
     public class AssessmentStatDto
     {
         public int TotalSessions { get; set; }
+        public double PassRate { get; set; }
         public double AverageScore { get; set; }
-        public double PassRate { get; set; } // Tỷ lệ % qua môn
     }
 
-    // DTO cho phân tích Market Alignment
+    // DTO cho StudentRoleStat
+    public class StudentRoleStatDto
+    {
+        public string RoleName { get; set; } = string.Empty;
+        public int StudentCount { get; set; }
+    }
+
+    // DTO cho MarketAlignment
     public class MarketAlignmentDto
     {
         public string SkillName { get; set; } = string.Empty;
-        public double MarketDemandPercentage { get; set; } // Độ hot trên thị trường (%)
-        public double StudentAdoptionPercentage { get; set; } // Tỷ lệ SV đang học (%)
+        public double MarketDemandPercentage { get; set; }
+        public double StudentAdoptionPercentage { get; set; }
+    }
+
+    // DTO cho Portfolio (Chi tiết sinh viên)
+    public class StudentPortfolioDto
+    {
+        public string StudentName { get; set; } = string.Empty;
+        public int AiCareerScore { get; set; }
+        public string AiProfileSummary { get; set; } = string.Empty;
+        public object CareerRecommendation { get; set; } = null!;
+        public object SkillGapAnalysis { get; set; } = null!;
+        public object RoadmapProgress { get; set; } = null!;
+        public object GithubStats { get; set; } = null!;
+        public List<object> Repositories { get; set; } = new List<object>();
     }
 }

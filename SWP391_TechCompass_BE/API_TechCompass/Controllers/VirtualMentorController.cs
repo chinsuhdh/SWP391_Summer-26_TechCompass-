@@ -37,7 +37,7 @@ namespace API_TechCompass.Controllers
             return Guid.Parse(userIdClaim);
         }
 
-        // 1. API MỚI: Trả về danh sách các cuộc trò chuyện cho thanh Sidebar
+        // 1. Trả về danh sách các cuộc trò chuyện cho thanh Sidebar
         [HttpGet("sessions")]
         public async Task<IActionResult> GetSessions()
         {
@@ -59,7 +59,7 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // 2. CẬP NHẬT API CHAT: Nhận SessionId từ React và trả về SessionId
+        // 2. Chat với AI
         [HttpPost("chat")]
         public async Task<IActionResult> ChatWithMentor([FromBody] VirtualMentorChatRequestDto request)
         {
@@ -72,10 +72,8 @@ namespace API_TechCompass.Controllers
                     return BadRequest(new { Error = "Không tìm thấy hồ sơ sinh viên tương ứng với tài khoản này." });
                 }
 
-                // Gọi Service đã nâng cấp (truyền thêm request.SessionId)
                 var result = await _mentorService.ChatAsync(student.StudentId, request.UserMessage, request.SessionId);
 
-                // Trả về kèm SessionId để React biết đang ở luồng chat nào
                 return Ok(new { Message = "Thành công", SessionId = result.SessionId, AiResponse = result.AiResponse });
             }
             catch (Exception ex)
@@ -84,7 +82,7 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // 3. CẬP NHẬT API LỊCH SỬ: Lấy chi tiết đoạn chat theo SessionId (Route param)
+        // 3. Lấy chi tiết đoạn chat theo SessionId
         [HttpGet("chat-history/{sessionId}")]
         public async Task<IActionResult> GetChatHistoryBySession(Guid sessionId)
         {
@@ -97,7 +95,6 @@ namespace API_TechCompass.Controllers
                     return BadRequest(new { Error = "Không tìm thấy hồ sơ sinh viên tương ứng." });
                 }
 
-                // Truyền sessionId xuống Service
                 var history = await _mentorService.GetChatHistoryAsync(sessionId);
                 return Ok(new { Data = history });
             }
@@ -107,11 +104,40 @@ namespace API_TechCompass.Controllers
             }
         }
 
-        // 4. API Fallback: Xử lý mượt mà khi React vô tình gọi thiếu param
+        // 4. API Fallback
         [HttpGet("chat-history")]
         public IActionResult GetChatHistoryFallback()
         {
             return Ok(new { Data = new List<ChatHistoryResponseDto>() });
+        }
+
+        // 5. API MỚI: Xóa đoạn chat theo SessionId
+        [HttpDelete("sessions/{sessionId}")]
+        public async Task<IActionResult> DeleteSession(Guid sessionId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var student = _userRepo.GetStudentByUserId(userId);
+
+                if (student == null)
+                {
+                    return BadRequest(new { Error = "Không tìm thấy hồ sơ sinh viên." });
+                }
+
+                var isDeleted = await _mentorService.DeleteSessionAsync(sessionId, student.StudentId);
+
+                if (isDeleted)
+                {
+                    return Ok(new { Message = "Xóa đoạn chat thành công." });
+                }
+
+                return BadRequest(new { Error = "Không thể xóa đoạn chat này hoặc đoạn chat không tồn tại." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = ex.Message });
+            }
         }
     }
 }

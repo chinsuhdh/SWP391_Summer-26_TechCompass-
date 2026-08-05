@@ -1,5 +1,6 @@
-﻿// src/Service_TechCompass/Services/StudentProfileService.cs
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.GenAI.Types;
@@ -34,7 +35,7 @@ namespace Service_TechCompass.Services
             _userRepo = userRepo;
             _chatCompletionService = kernel.GetRequiredService<IChatCompletionService>("GeminiChat");
             _hubContext = hubContext;
-            _context = context; 
+            _context = context;
         }
 
         public async Task<(int StatusCode, string Message, object? Data)> GetProfileAsync(Guid userId)
@@ -87,7 +88,6 @@ namespace Service_TechCompass.Services
                     var mentor = await _userRepo.GetMentorByUserIdAsync(userId);
                     if (mentor == null) return (404, "Không tìm thấy hồ sơ Mentor.", null);
 
-                    // ĐÃ LÀM PHẲNG DỮ LIỆU MENTOR
                     return (200, "Lấy thông tin Mentor thành công.", new
                     {
                         UserId = user.UserId,
@@ -104,7 +104,6 @@ namespace Service_TechCompass.Services
                     var counselor = await _userRepo.GetCounselorByUserIdAsync(userId);
                     if (counselor == null) return (404, "Không tìm thấy hồ sơ Counselor.", null);
 
-                    // ĐÃ LÀM PHẲNG DỮ LIỆU COUNSELOR
                     return (200, "Lấy thông tin Counselor thành công.", new
                     {
                         UserId = user.UserId,
@@ -136,10 +135,8 @@ namespace Service_TechCompass.Services
                 return (404, "Không tìm thấy hồ sơ sinh viên để cập nhật.");
             }
 
-            // 1. Lọc và chuẩn hóa Mã học viên mới
             string newStudentCode = string.IsNullOrWhiteSpace(request.StudentCode) ? null : request.StudentCode.Trim();
 
-            // 2. [THÊM MỚI] - Chủ động kiểm tra trùng lặp
             if (!string.IsNullOrEmpty(newStudentCode))
             {
                 bool isCodeTaken = _userRepo.IsStudentCodeExists(newStudentCode, student.StudentId);
@@ -174,7 +171,6 @@ namespace Service_TechCompass.Services
             }
             catch (DbUpdateException ex)
             {
-                // Vẫn giữ catch DbUpdateException như một lớp phòng thủ cuối cùng (phòng trường hợp 2 user update cùng 1 tíc tắc)
                 if (ex.InnerException != null && ex.InnerException.Message.Contains("UQ_students_student_code"))
                 {
                     return (400, "Mã số học viên này đã được sử dụng bởi một tài khoản khác. Vui lòng kiểm tra lại.");
@@ -267,13 +263,11 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
                     return (404, "Không tìm thấy hồ sơ sinh viên.", null);
 
                 var feedbacks = await _context.MentorSessions
-                    // ĐÃ BỎ: .Include(ms => ms.Mentor) và .ThenInclude(m => m.User)
                     .Where(ms => ms.StudentId == student.StudentId && ms.Status == "Completed" && ms.ReviewNotes != null)
                     .OrderByDescending(ms => ms.ScheduledAt)
                     .Select(ms => new StudentFeedbackDto
                     {
                         SessionId = ms.SessionId,
-                        // Thêm check null an toàn để EF Core tự động dịch thành LEFT JOIN
                         MentorName = ms.Mentor != null && ms.Mentor.FullName != null
                                      ? ms.Mentor.FullName : "Chuyên gia ẩn danh",
                         MentorCompany = ms.Mentor != null && ms.Mentor.CurrentCompany != null
@@ -287,9 +281,30 @@ Bạn PHẢI trả về dữ liệu ĐÚNG định dạng JSON sau, không kèm 
             }
             catch (Exception ex)
             {
-                // Exception sẽ được bắt ở đây và trả về cho Controller
                 return (500, $"Lỗi hệ thống: {ex.Message}", null);
             }
+        }
+
+        // ===============================================
+        // BỔ SUNG: HÀM TÌM CỐ VẤN CHO SINH VIÊN
+        // ===============================================
+        public async Task<object?> GetMyCounselorAsync(Guid studentUserId)
+        {
+            // 1. Kiểm tra sinh viên có tồn tại không
+            var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == studentUserId);
+            if (student == null) return null;
+
+            // 2. Tìm Counselor. (Tạm thời lấy Counselor đầu tiên trong DB)
+            var counselor = await _context.Counselors.FirstOrDefaultAsync();
+            if (counselor == null) return null;
+
+            // 3. Trả về object ẩn danh
+            return new
+            {
+                counselorId = counselor.CounselorId,
+                fullName = counselor.FullName ?? "Cố vấn hệ thống",
+                department = counselor.Department ?? "Phòng ban chung"
+            };
         }
     }
 }

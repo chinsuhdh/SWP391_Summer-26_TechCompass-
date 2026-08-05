@@ -1,5 +1,4 @@
-﻿// Service_TechCompass/DTOs/PagedResult.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Service_TechCompass.DTOs
@@ -10,6 +9,8 @@ namespace Service_TechCompass.DTOs
         public int TotalCount { get; set; }
         public int PageNumber { get; set; }
         public int PageSize { get; set; }
-        public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+
+        // Cải tiến an toàn: Đảm bảo PageSize > 0 để tránh lỗi chia cho 0
+        public int TotalPages => PageSize > 0 ? (int)Math.Ceiling(TotalCount / (double)PageSize) : 0;
     }
 }
