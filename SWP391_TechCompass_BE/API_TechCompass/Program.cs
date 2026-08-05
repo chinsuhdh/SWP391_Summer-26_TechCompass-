@@ -15,6 +15,8 @@ using Microsoft.SemanticKernel;
 using Hangfire;
 using Polly;
 using Polly.Extensions.Http;
+// Nếu ChatHub của bạn nằm ở namespace khác, hãy using thêm ở đây. Ví dụ:
+// using API_TechCompass.Hubs; 
 
 namespace API_TechCompass
 {
@@ -109,6 +111,9 @@ namespace API_TechCompass
             builder.Services.AddScoped<IMentorService, MentorService>();
             builder.Services.AddScoped<IDashboardService, DashboardService>();
 
+            // [MỚI THÊM] - Đăng ký Service xử lý logic chat cho Cố vấn học tập
+            builder.Services.AddScoped<ICounselorChatService, CounselorChatService>();
+
             // CẤU HÌNH HTTP CLIENT KÈM CIRCUIT BREAKER VỚI POLLY CHỐNG SẬP DỊCH VỤ NGOÀI
             builder.Services.AddHttpClient<IPracticeWorkspaceService, PracticeWorkspaceService>()
                 .AddTransientHttpErrorPolicy(policy =>
@@ -196,9 +201,15 @@ namespace API_TechCompass
                 Cron.Daily(17));
 
             app.MapControllers();
+
+            // CÁC SIGNALR HUB CŨ
             app.MapHub<Service_TechCompass.Hubs.RoadmapNotificationHub>("/hubs/roadmap");
             app.MapHub<Service_TechCompass.Hubs.VirtualMentorChatHub>("/hubs/virtualMentor");
             app.MapHub<Service_TechCompass.Hubs.PortfolioHub>("/portfolioHub");
+
+            // [MỚI THÊM] - Đăng ký endpoint cho Hub chat cố vấn học tập
+            // (Đảm bảo namespace API_TechCompass.Hubs khớp với file ChatHub.cs của bạn)
+            app.MapHub<Service_TechCompass.Hubs.ChatHub>("/hubs/counselorChat");
 
             app.Run();
         }

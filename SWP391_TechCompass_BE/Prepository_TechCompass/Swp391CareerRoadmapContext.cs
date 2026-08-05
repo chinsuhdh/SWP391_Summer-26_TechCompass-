@@ -46,8 +46,8 @@ public partial class Swp391CareerRoadmapContext : DbContext
     public virtual DbSet<AssessmentQuizDetail> AssessmentQuizDetails { get; set; }
     public virtual DbSet<AssessmentCodeDetail> AssessmentCodeDetails { get; set; }
 
-
     public virtual DbSet<Counselor> Counselors { get; set; }
+    public virtual DbSet<CounselorSession> CounselorSessions { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -119,6 +119,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasColumnName("message_id");
             entity.Property(e => e.AiSessionId).HasColumnName("ai_session_id");
             entity.Property(e => e.MentorSessionId).HasColumnName("mentor_session_id");
+            entity.Property(e => e.CounselorSessionId).HasColumnName("counselor_session_id");
             entity.Property(e => e.MessageText).HasColumnName("message_text");
             entity.Property(e => e.SenderType)
                 .HasMaxLength(20)
@@ -135,6 +136,10 @@ public partial class Swp391CareerRoadmapContext : DbContext
             entity.HasOne(d => d.MentorSession).WithMany(p => p.ChatMessages)
                 .HasForeignKey(d => d.MentorSessionId)
                 .HasConstraintName("fk_chat_mentorsession");
+
+            entity.HasOne(d => d.CounselorSession).WithMany(p => p.ChatMessages)
+                .HasForeignKey(d => d.CounselorSessionId)
+                .HasConstraintName("fk_chat_counselorsession");
         });
 
         modelBuilder.Entity<EPortfolio>(entity =>
@@ -300,7 +305,6 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .ValueGeneratedNever()
                 .HasColumnName("mentor_id");
 
-            // THÊM ĐOẠN NÀY ĐỂ MAP VỚI CỘT DƯỚI SQL SERVER
             entity.Property(e => e.FullName)
                 .HasMaxLength(100)
                 .HasColumnName("full_name");
@@ -512,7 +516,6 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
-            // [SECURITY-FIX]: Map cột github_username — dùng để xác thực chủ sở hữu khi sync
             entity.Property(e => e.GithubUsername)
                 .HasMaxLength(100)
                 .IsUnicode(false)
@@ -603,7 +606,6 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .IsUnicode(false)
                 .HasColumnName("difficulty_level");
 
-
             entity.HasOne(d => d.SkillNode).WithMany(p => p.AssessmentQuestions)
                 .HasForeignKey(d => d.SkillNodeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -673,7 +675,6 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasMaxLength(20)
                 .IsUnicode(false)
                 .HasColumnName("difficulty_level");
-
             entity.Property(e => e.Language)
                 .HasMaxLength(50)
                 .IsUnicode(false)
@@ -696,25 +697,20 @@ public partial class Swp391CareerRoadmapContext : DbContext
             entity.Property(e => e.SessionId)
                 .ValueGeneratedNever()
                 .HasColumnName("session_id");
-
             entity.Property(e => e.StudentId).HasColumnName("student_id");
             entity.Property(e => e.SkillNodeId).HasColumnName("skill_node_id");
-
             entity.Property(e => e.TotalQuizScore)
                 .HasColumnType("decimal(4, 2)")
                 .HasColumnName("total_quiz_score");
-
             entity.Property(e => e.TotalCodeScore)
                 .HasColumnType("decimal(4, 2)")
                 .HasColumnName("total_code_score");
-
             entity.Property(e => e.AssessmentType)
                 .IsRequired()
                 .HasMaxLength(20)
-                .IsUnicode(false) 
+                .IsUnicode(false)
                 .HasColumnName("assessment_type")
                 .HasDefaultValueSql("('TESTED')");
-
             entity.Property(e => e.TakenAt)
                 .HasColumnType("datetime")
                 .HasColumnName("taken_at")
@@ -748,14 +744,12 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasColumnName("selected_option");
             entity.Property(e => e.IsCorrect).HasColumnName("is_correct");
 
-            // Khóa ngoại trỏ về bảng Cha (Session)
             entity.HasOne(d => d.Session)
                 .WithMany(p => p.QuizDetails)
                 .HasForeignKey(d => d.SessionId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_quizdetail_session");
 
-            // Khóa ngoại trỏ về bảng Câu hỏi
             entity.HasOne(d => d.Question)
                 .WithMany()
                 .HasForeignKey(d => d.QuestionId)
@@ -774,7 +768,6 @@ public partial class Swp391CareerRoadmapContext : DbContext
             entity.Property(e => e.SourceCode).HasColumnName("source_code");
             entity.Property(e => e.AiFeedback).HasColumnName("ai_feedback");
 
-            // Khóa ngoại trỏ về bảng Cha (Session - 1:1)
             entity.HasOne(d => d.Session)
                 .WithOne(p => p.CodeDetail)
                 .HasForeignKey<AssessmentCodeDetail>(d => d.SessionId)
@@ -782,33 +775,55 @@ public partial class Swp391CareerRoadmapContext : DbContext
                 .HasConstraintName("fk_codedetail_session");
         });
 
+        // ==========================================
+        // CẤU HÌNH CHO COUNSELOR VÀ COUNSELOR SESSION
+        // ==========================================
+        modelBuilder.Entity<CounselorSession>(entity =>
+        {
+            entity.HasKey(e => e.SessionId).HasName("PK__counselor_sessions");
+            entity.ToTable("counselor_sessions");
+
+            entity.Property(e => e.SessionId).ValueGeneratedNever().HasColumnName("session_id");
+            entity.Property(e => e.StudentId).HasColumnName("student_id");
+            entity.Property(e => e.CounselorId).HasColumnName("counselor_id");
+            entity.Property(e => e.StartedAt).HasColumnType("datetime").HasColumnName("started_at").HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.Status).HasMaxLength(20).IsUnicode(false).HasColumnName("status");
+
+            entity.HasOne(d => d.Student)
+                .WithMany()
+                .HasForeignKey(d => d.StudentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_counselsession_student");
+
+            entity.HasOne(d => d.Counselor)
+                .WithMany()
+                .HasForeignKey(d => d.CounselorId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_counselsession_counselor");
+        });
+
         modelBuilder.Entity<Counselor>(entity =>
         {
             entity.HasKey(e => e.CounselorId).HasName("PK__counselors");
             entity.ToTable("counselors");
 
-            // Đảm bảo quan hệ 1-1 với User
             entity.HasIndex(e => e.UserId, "UQ__counselors__user_id").IsUnique();
 
             entity.Property(e => e.CounselorId)
                 .ValueGeneratedNever()
                 .HasColumnName("counselor_id");
-
             entity.Property(e => e.UserId).HasColumnName("user_id");
-
             entity.Property(e => e.FullName)
                 .HasMaxLength(100)
                 .HasColumnName("full_name");
-
             entity.Property(e => e.Department)
                 .HasMaxLength(100)
                 .HasColumnName("department");
-
             entity.Property(e => e.UpdatedAt)
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
 
-            entity.HasOne(d => d.User).WithOne() 
+            entity.HasOne(d => d.User).WithOne()
                 .HasForeignKey<Counselor>(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_counselor_user");

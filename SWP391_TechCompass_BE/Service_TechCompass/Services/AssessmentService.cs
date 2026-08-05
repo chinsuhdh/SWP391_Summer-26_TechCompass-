@@ -310,13 +310,20 @@ Cấu trúc JSON bắt buộc phải giống hệt như sau:
         public async Task<AssessmentSession> GradeAndSaveFullExamAsync(SubmitFullExamDto submission)
         {
             var student = _userRepo.GetStudentByUserId(submission.StudentId);
-            if (student == null) throw new Exception("Không tìm thấy sinh viên.");
+            if (student == null)
+            {
+                // In rõ ID mà ReactJS gửi lên để bạn biết nó đang truyền nhầm cái gì
+                throw new Exception($"Không tìm thấy sinh viên tương ứng với ID: {submission.StudentId}. Hãy kiểm tra lại Frontend đang truyền UserId hay StudentId.");
+            }
             var session = new AssessmentSession
             {
                 SessionId = Guid.NewGuid(),
                 StudentId = student.StudentId,
-                SkillNodeId = submission.SkillNodeId,
-                AssessmentType = "TESTED", 
+                // Cố gắng lấy Node hợp lệ. Nếu DB của bạn cho phép nullable, hãy dùng (int?)null
+                // Nếu bắt buộc phải có, hãy tạm gán ID của một kỹ năng mặc định (ví dụ: 1)
+                SkillNodeId = submission.SkillNodeId > 0 ? submission.SkillNodeId : 1,
+                // Gắn đúng loại bài Test để dễ phân biệt trong Database
+                AssessmentType = submission.SkillNodeId > 0 ? "TESTED" : "PLACEMENT_TEST",
                 TakenAt = DateTime.Now
             };
 
@@ -453,7 +460,7 @@ Chỉ trả về nội dung nhận xét.";
                     Id = Guid.NewGuid(),
                     SessionId = session.SessionId,
                     SourceCode = submission.CodeSubmission.SourceCode,
-                    AiFeedback = aiFeedback.Trim()
+                    AiFeedback = string.IsNullOrWhiteSpace(aiFeedback) ? "Hệ thống AI hiện không thể phản hồi." : aiFeedback.Trim()
                 };
             }
             session.TotalCodeScore = executionScore;

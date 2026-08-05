@@ -20,4 +20,7 @@ public partial class ChatMessage
     public virtual AiChatSession? AiSession { get; set; }
 
     public virtual MentorSession? MentorSession { get; set; }
+    // Thêm 2 dòng này vào class ChatMessage hiện tại của bạn
+    public Guid? CounselorSessionId { get; set; }
+    public virtual CounselorSession? CounselorSession { get; set; }
 }
