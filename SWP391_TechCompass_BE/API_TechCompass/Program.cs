@@ -68,6 +68,7 @@ namespace API_TechCompass
             builder.Services.AddScoped<IContentRepository, ContentRepository>();
             builder.Services.AddScoped<IPracticeWorkspaceRepository, PracticeWorkspaceRepository>();
             builder.Services.AddScoped<IMarketPulseRepository, MarketPulseRepository>();
+            builder.Services.AddScoped<IJobService, JobService>();
 
             // 4. ĐĂNG KÝ AI & CÁC DỊCH VỤ KHÁC
             var geminiConfig = builder.Configuration.GetSection("GeminiApiConfig");

@@ -16,7 +16,7 @@ namespace Service_TechCompass.Hubs
 
         public async Task JoinSession(string sessionId)
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, sessionId);
+            await Groups.AddToGroupAsync(Context.ConnectionId, sessionId.ToLower());
         }
 
         public async Task SendMessage(Guid sessionId, Guid senderId, string content, bool isFromStudent)
@@ -24,14 +24,13 @@ namespace Service_TechCompass.Hubs
             // 1. Lưu DB
             var savedMessage = await _chatService.SaveMessageAsync(sessionId, senderId, content, isFromStudent);
 
-            // 2. Đẩy tin nhắn realtime tới các user trong phiên chat
-            await Clients.Group(sessionId.ToString()).SendAsync("ReceiveMessage", new
+            // 2. Đẩy tin nhắn realtime với định dạng chuẩn khớp 100% với Database API
+            await Clients.Group(sessionId.ToString().ToLower()).SendAsync("ReceiveMessage", new
             {
-                MessageId = savedMessage.MessageId,
-                SenderId = senderId,
-                Content = savedMessage.MessageText, // Lấy từ MessageText
-                Timestamp = savedMessage.SentAt,    // Lấy từ SentAt
-                IsFromStudent = savedMessage.SenderType == "Student" // Tính toán lại từ SenderType
+                messageId = savedMessage.MessageId,
+                messageText = savedMessage.MessageText, // Đã đổi thành messageText
+                senderType = savedMessage.SenderType,   // Đã đổi thành senderType
+                sentAt = savedMessage.SentAt            // Đã đổi thành sentAt
             });
         }
     }

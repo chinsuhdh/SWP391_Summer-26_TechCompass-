@@ -20,16 +20,30 @@ namespace Service_TechCompass.Services
 
         public async Task<CounselorSession> GetOrCreateSessionAsync(Guid studentId, Guid counselorId)
         {
+            // BƯỚC 1: Tìm StudentId chuẩn
+            var actualStudent = await _context.Students
+                .FirstOrDefaultAsync(s => s.UserId == studentId || s.StudentId == studentId);
+            if (actualStudent == null) throw new Exception("Không tìm thấy hồ sơ sinh viên.");
+
+            // BƯỚC 2 (ĐÃ SỬA): Tìm CounselorId chuẩn từ UserId gửi lên
+            var actualCounselor = await _context.Counselors
+                .FirstOrDefaultAsync(c => c.UserId == counselorId || c.CounselorId == counselorId);
+            if (actualCounselor == null) throw new Exception("Không tìm thấy thông tin Cố vấn.");
+
+            var finalStudentId = actualStudent.StudentId;
+            var finalCounselorId = actualCounselor.CounselorId;
+
+            // BƯỚC 3: Kiểm tra Session hiện tại
             var session = await _context.CounselorSessions
-                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.CounselorId == counselorId && s.Status == "Open");
+                .FirstOrDefaultAsync(s => s.StudentId == finalStudentId && s.CounselorId == finalCounselorId && s.Status == "Open");
 
             if (session == null)
             {
                 session = new CounselorSession
                 {
                     SessionId = Guid.NewGuid(),
-                    StudentId = studentId,
-                    CounselorId = counselorId,
+                    StudentId = finalStudentId,
+                    CounselorId = finalCounselorId,
                     StartedAt = DateTime.Now,
                     Status = "Open"
                 };
@@ -46,7 +60,6 @@ namespace Service_TechCompass.Services
             {
                 MessageId = Guid.NewGuid(),
                 CounselorSessionId = sessionId,
-                // Map đúng tên thuộc tính trong Model ChatMessage của bạn
                 MessageText = content,
                 SentAt = DateTime.Now,
                 SenderType = isFromStudent ? "Student" : "Counselor"
@@ -62,7 +75,6 @@ namespace Service_TechCompass.Services
         {
             return await _context.ChatMessages
                 .Where(m => m.CounselorSessionId == sessionId)
-                // Map đúng thuộc tính SentAt để sắp xếp
                 .OrderBy(m => m.SentAt)
                 .ToListAsync();
         }

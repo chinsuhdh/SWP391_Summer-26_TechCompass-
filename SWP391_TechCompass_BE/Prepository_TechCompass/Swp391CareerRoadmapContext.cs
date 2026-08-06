@@ -40,6 +40,7 @@ public partial class Swp391CareerRoadmapContext : DbContext
     public virtual DbSet<User> Users { get; set; }
     public virtual DbSet<AssessmentQuestion> AssessmentQuestions { get; set; }
     public virtual DbSet<CodingExercise> CodingExercises { get; set; }
+    public virtual DbSet<SavedJob> SavedJobs { get; set; }
 
     // NEW DB SETS FOR ASSESSMENT SESSION
     public virtual DbSet<AssessmentSession> AssessmentSessions { get; set; }
